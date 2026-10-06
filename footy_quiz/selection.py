@@ -1,24 +1,22 @@
 """Target-player selection for "guess the player" mode.
 
-A player is a good riddle subject if they have enough recognizable teammates at enough
-different clubs for a multi-step clue chain. Sparsity in the open data (StatsBomb only
-covers partial seasons/competitions) means many real careers are only partially
-represented, so this tiers/scores candidates rather than hard-filtering on raw "played
-for N clubs" counts.
+A player is a good riddle subject if they have teammates we can build clues from. How
+*good* those connections are determines difficulty, not eligibility: even a one-match
+cameo has teammates from that single match, so every player with at least one appearance
+alongside someone else qualifies for at least "extreme" difficulty. See config.py's
+DIFFICULTY_PRESETS for exactly what each band requires.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Literal, Optional
+from typing import Optional
 
 import duckdb
 
 import config
 from footy_quiz.db import connect
-
-Tier = Literal["multi_club", "single_club", "reject"]
 
 
 @dataclass
@@ -28,12 +26,12 @@ class PlayerCandidate:
     n_matches: int
     n_clubs: int
     n_rich_clubs: int
-    tier: Tier
+    difficulty: str
     score: float
 
 
-def _build_stats_tables(con: duckdb.DuckDBPyConnection) -> None:
-    """(Re)builds the temp tables the ranking query reads from, scoped to this connection."""
+def _build_base_tables(con: duckdb.DuckDBPyConnection) -> None:
+    """(Re)builds the preset-independent temp tables: per-player stats and symmetric edges."""
     con.execute(
         """
         CREATE OR REPLACE TEMP TABLE _player_stats AS
@@ -59,33 +57,47 @@ def _build_stats_tables(con: duckdb.DuckDBPyConnection) -> None:
         """
     )
 
-    con.execute(
+
+def _rich_club_counts(con: duckdb.DuckDBPyConnection, preset: dict) -> dict[int, int]:
+    """Per-player count of "rich" clubs under one difficulty preset's thresholds."""
+    rows = con.execute(
         f"""
-        CREATE OR REPLACE TEMP TABLE _player_club_strength AS
-        SELECT e.player_id, e.team_id,
-               COUNT(*) FILTER (
-                   WHERE e.shared_matches >= {config.MIN_SHARED_MATCHES_FOR_STRONG_TEAMMATE}
-                     AND ps.n_matches >= {config.MIN_MATCHES_FOR_STRONG_TEAMMATE}
-               ) AS n_strong_teammates
-        FROM _edges_sym e
-        JOIN _player_stats ps ON ps.player_id = e.teammate_id
-        GROUP BY e.player_id, e.team_id
+        WITH club_strength AS (
+            SELECT e.player_id, e.team_id,
+                   COUNT(*) FILTER (
+                       WHERE e.shared_matches >= {preset["min_shared_matches_for_strong_teammate"]}
+                         AND ps.n_matches >= {preset["min_matches_for_strong_teammate"]}
+                   ) AS n_strong_teammates
+            FROM _edges_sym e
+            JOIN _player_stats ps ON ps.player_id = e.teammate_id
+            GROUP BY e.player_id, e.team_id
+        )
+        SELECT player_id, COUNT(*) AS n_rich_clubs
+        FROM club_strength
+        WHERE n_strong_teammates >= {preset["min_strong_teammates_per_rich_club"]}
+        GROUP BY player_id
         """
-    )
+    ).fetchall()
+    return dict(rows)
 
 
 def rank_candidates(
     con: duckdb.DuckDBPyConnection,
-    min_matches: int = config.MIN_MATCHES_FOR_TARGET,
-    min_strong_teammates_per_club: int = config.MIN_STRONG_TEAMMATES_PER_RICH_CLUB,
-    tier: str = "any",
+    difficulty: str = "any",
     competition_ids: Optional[list[int]] = None,
     limit: int = 500,
 ) -> list[PlayerCandidate]:
-    """Full ranked candidate list with debug info (name/tier/score) -- the basis for
+    """Full ranked candidate list with debug info (name/difficulty/score) -- the basis for
     `list_candidate_target_players`, exposed separately so callers can eyeball *why* a
-    player was ranked where they were."""
-    _build_stats_tables(con)
+    player was banded where they were.
+
+    Each player is assigned the STRICTEST difficulty preset (see config.DIFFICULTY_ORDER)
+    whose thresholds they satisfy, so bands are mutually exclusive.
+    """
+    _build_base_tables(con)
+    rich_by_preset = {
+        name: _rich_club_counts(con, preset) for name, preset in config.DIFFICULTY_PRESETS.items()
+    }
 
     competition_filter = ""
     if competition_ids:
@@ -100,40 +112,38 @@ def rank_candidates(
 
     rows = con.execute(
         f"""
-        WITH rich_clubs AS (
-            SELECT player_id, COUNT(*) AS n_rich_clubs
-            FROM _player_club_strength
-            WHERE n_strong_teammates >= {min_strong_teammates_per_club}
-            GROUP BY player_id
-        )
-        SELECT p.player_id, p.player_name, ps.n_matches, ps.n_clubs,
-               COALESCE(rc.n_rich_clubs, 0) AS n_rich_clubs, ps.has_international
+        SELECT p.player_id, p.player_name, ps.n_matches, ps.n_clubs, ps.has_international
         FROM players p
         JOIN _player_stats ps ON ps.player_id = p.player_id
-        LEFT JOIN rich_clubs rc ON rc.player_id = p.player_id
-        WHERE ps.n_matches >= {min_matches}
-        {competition_filter}
+        WHERE 1=1 {competition_filter}
         """
     ).fetchall()
 
     candidates: list[PlayerCandidate] = []
-    for player_id, player_name, n_matches, n_clubs, n_rich_clubs, has_international in rows:
-        if n_rich_clubs >= 2:
-            tier_value: Tier = "multi_club"
-        elif n_rich_clubs == 1:
-            tier_value = "single_club"
-        else:
-            tier_value = "reject"
+    for player_id, player_name, n_matches, n_clubs, has_international in rows:
+        assigned_difficulty = None
+        assigned_n_rich = 0
+        for name in config.DIFFICULTY_ORDER:
+            preset = config.DIFFICULTY_PRESETS[name]
+            n_rich = rich_by_preset[name].get(player_id, 0)
+            if n_matches >= preset["min_matches"] and n_rich >= preset["min_rich_clubs"]:
+                assigned_difficulty = name
+                assigned_n_rich = n_rich
+                break
 
-        if tier_value == "reject":
-            continue
-        if tier != "any" and tier_value != tier:
+        if assigned_difficulty is None:
+            continue  # no teammate connection at all, under even the loosest preset
+        if difficulty != "any" and assigned_difficulty != difficulty:
             continue
 
-        score = 3 * n_rich_clubs + 2 * math.log(n_matches + 1) + (1 if has_international else 0)
+        score = (
+            3 * assigned_n_rich
+            + 2 * math.log(n_matches + 1)
+            + (1 if has_international else 0)
+        )
         candidates.append(
             PlayerCandidate(
-                player_id, player_name, n_matches, n_clubs, n_rich_clubs, tier_value, score
+                player_id, player_name, n_matches, n_clubs, assigned_n_rich, assigned_difficulty, score
             )
         )
 
@@ -142,18 +152,15 @@ def rank_candidates(
 
 
 def list_candidate_target_players(
-    min_matches: int = config.MIN_MATCHES_FOR_TARGET,
-    min_strong_teammates_per_club: int = config.MIN_STRONG_TEAMMATES_PER_RICH_CLUB,
-    tier: str = "any",
+    difficulty: str = "normal",
     competition_ids: Optional[list[int]] = None,
     limit: int = 500,
 ) -> list[int]:
-    """Public contract function: ranked target-player ids, best riddle subjects first."""
+    """Public contract function: ranked target-player ids for one difficulty band,
+    best riddle subjects (within that band) first."""
     con = connect()
     try:
-        candidates = rank_candidates(
-            con, min_matches, min_strong_teammates_per_club, tier, competition_ids, limit
-        )
+        candidates = rank_candidates(con, difficulty, competition_ids, limit)
     finally:
         con.close()
     return [c.player_id for c in candidates]

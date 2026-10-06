@@ -18,40 +18,37 @@ def con():
     conn.close()
 
 
-def test_cameo_sub_excluded(con):
-    # Sergi Canós: exactly 1 appearance in this dataset -- below MIN_MATCHES_FOR_TARGET.
-    candidates = selection.rank_candidates(con, limit=100_000)
-    assert 4762 not in {c.player_id for c in candidates}
+def test_cameo_sub_is_extreme_not_missing(con):
+    # Sergi Canós: exactly 1 appearance -- too sparse for easy/normal/hard, but still
+    # has teammates from that one match, so should land in "extreme", not disappear.
+    candidates = selection.rank_candidates(con, difficulty="any", limit=100_000)
+    by_id = {c.player_id: c for c in candidates}
+    assert 4762 in by_id
+    assert by_id[4762].difficulty == "extreme"
 
 
-def test_messi_is_multi_club_tier(con):
-    candidates = selection.rank_candidates(con, limit=100_000)
+def test_messi_is_easy(con):
+    candidates = selection.rank_candidates(con, difficulty="any", limit=100_000)
     by_id = {c.player_id: c for c in candidates}
     assert 5503 in by_id
-    messi = by_id[5503]
-    assert messi.tier == "multi_club"
-    assert messi.n_rich_clubs >= 2
+    assert by_id[5503].difficulty == "easy"
 
 
-def test_tiers_are_well_formed(con):
-    candidates = selection.rank_candidates(con, limit=1000)
-    assert all(c.tier in ("multi_club", "single_club") for c in candidates)
-    assert any(c.tier == "multi_club" for c in candidates)
-    assert any(c.tier == "single_club" for c in candidates)
-    # multi_club candidates must have >=2 rich clubs, single_club exactly 1
-    for c in candidates:
-        if c.tier == "multi_club":
-            assert c.n_rich_clubs >= 2
-        else:
-            assert c.n_rich_clubs == 1
+def test_bands_are_mutually_exclusive_and_well_formed(con):
+    candidates = selection.rank_candidates(con, difficulty="any", limit=5000)
+    assert all(c.difficulty in ("easy", "normal", "hard", "extreme") for c in candidates)
+    seen_ids = [c.player_id for c in candidates]
+    assert len(seen_ids) == len(set(seen_ids))  # each player appears in exactly one band
+    for name in ("easy", "normal", "hard", "extreme"):
+        assert any(c.difficulty == name for c in candidates), f"no candidates for {name}"
 
 
 def test_candidates_sorted_descending_by_score(con):
-    candidates = selection.rank_candidates(con, limit=200)
+    candidates = selection.rank_candidates(con, difficulty="any", limit=200)
     scores = [c.score for c in candidates]
     assert scores == sorted(scores, reverse=True)
 
 
-def test_tier_filter_only_returns_requested_tier(con):
-    single_only = selection.rank_candidates(con, tier="single_club", limit=200)
-    assert all(c.tier == "single_club" for c in single_only)
+def test_difficulty_filter_only_returns_requested_band(con):
+    hard_only = selection.rank_candidates(con, difficulty="hard", limit=200)
+    assert all(c.difficulty == "hard" for c in hard_only)
