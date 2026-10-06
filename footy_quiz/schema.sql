@@ -48,3 +48,31 @@ CREATE TABLE appearances (
     primary_position VARCHAR,
     PRIMARY KEY (match_id, player_id)
 );
+
+-- One row per (player_id_a, player_id_b, team_id): the two players shared a squad list for
+-- `shared_matches` matches at that team, somewhere in the dataset's coverage. player_id_a is
+-- always the smaller id -- an unordered pair stored once, not twice. Populated by footy_quiz.graph.
+CREATE TABLE teammate_edges (
+    player_id_a INTEGER NOT NULL REFERENCES players(player_id),
+    player_id_b INTEGER NOT NULL REFERENCES players(player_id),
+    team_id INTEGER NOT NULL REFERENCES teams(team_id),
+    shared_matches INTEGER NOT NULL,
+    first_shared_date DATE,
+    last_shared_date DATE,
+    PRIMARY KEY (player_id_a, player_id_b, team_id)
+);
+
+-- Same edges, broken down by competition/season, so a clue can cite *which* competition and
+-- season the shared squad membership happened in (e.g. "the 2018/19 Champions League").
+CREATE TABLE teammate_edge_contexts (
+    player_id_a INTEGER NOT NULL,
+    player_id_b INTEGER NOT NULL,
+    team_id INTEGER NOT NULL,
+    competition_id INTEGER NOT NULL,
+    season_id INTEGER NOT NULL,
+    matches_in_context INTEGER NOT NULL,
+    PRIMARY KEY (player_id_a, player_id_b, team_id, competition_id, season_id),
+    FOREIGN KEY (player_id_a, player_id_b, team_id)
+        REFERENCES teammate_edges (player_id_a, player_id_b, team_id),
+    FOREIGN KEY (competition_id, season_id) REFERENCES competitions (competition_id, season_id)
+);
