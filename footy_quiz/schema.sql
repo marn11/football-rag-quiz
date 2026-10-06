@@ -76,3 +76,24 @@ CREATE TABLE teammate_edge_contexts (
         REFERENCES teammate_edges (player_id_a, player_id_b, team_id),
     FOREIGN KEY (competition_id, season_id) REFERENCES competitions (competition_id, season_id)
 );
+
+-- Wikipedia-backed media cache, one row per player/team the first time it's looked up
+-- (lazy, on demand -- not bulk-prefetched). wiki_title/photo_url(/crest_url) are NULL when
+-- resolution_method = 'unresolved', so we don't keep re-attempting a name we already tried.
+-- NOTE: rebuilding the DB from scratch (ingest.build()) wipes this cache like everything
+-- else -- acceptable since full rebuilds are rare, deliberate, dev-time operations.
+CREATE TABLE player_wiki (
+    player_id INTEGER PRIMARY KEY REFERENCES players(player_id),
+    wiki_title VARCHAR,
+    resolution_method VARCHAR NOT NULL,  -- 'direct' | 'disambiguator' | 'search' | 'unresolved'
+    photo_url VARCHAR,
+    fetched_at TIMESTAMP NOT NULL
+);
+
+CREATE TABLE team_wiki (
+    team_id INTEGER PRIMARY KEY REFERENCES teams(team_id),
+    wiki_title VARCHAR,
+    resolution_method VARCHAR NOT NULL,
+    crest_url VARCHAR,
+    fetched_at TIMESTAMP NOT NULL
+);
