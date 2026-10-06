@@ -1,0 +1,16 @@
+# Vendored source data (re-fetched via scripts/vendor_data.sh, not committed)
+vendor/open-data/
+!vendor/SOURCE_COMMIT.txt
+
+# Built artifacts
+data/*.duckdb
+data/*.duckdb.wal
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Env
+.env
