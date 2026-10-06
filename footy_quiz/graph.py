@@ -18,6 +18,11 @@ from footy_quiz.ingest import DEFAULT_DB_PATH
 # Shared by both queries below: pairs up every two players who appear in the same
 # (match_id, team_id) squad list, with player_id_a < player_id_b so each unordered pair
 # is produced once, not twice (a1/a2 would otherwise double-count (x,y) and (y,x)).
+# Clubs only: national-team squads (competition_international, e.g. World Cup/Euro/Copa
+# América/AFCON) are excluded entirely -- a riddle should never read "played with X for
+# France". `competition_international` is confirmed clean for this: in our data it's true
+# only for genuine country-vs-country competitions, never for cross-border club
+# competitions like the Champions League.
 _PAIR_JOIN = """
     FROM appearances a1
     JOIN appearances a2
@@ -25,6 +30,8 @@ _PAIR_JOIN = """
      AND a1.team_id = a2.team_id
      AND a1.player_id < a2.player_id
     JOIN matches m ON m.match_id = a1.match_id
+    JOIN competitions c ON c.competition_id = m.competition_id AND c.season_id = m.season_id
+    WHERE NOT c.competition_international
 """
 
 

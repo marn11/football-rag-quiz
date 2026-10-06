@@ -17,6 +17,20 @@ def con():
     conn.close()
 
 
+def test_no_edges_from_international_competitions(con):
+    # Clubs only -- a riddle must never read "played with X for France". Every edge
+    # context's competition must be a club competition (competition_international = false).
+    bad = con.sql(
+        """
+        SELECT COUNT(*) FROM teammate_edge_contexts ctx
+        JOIN competitions c
+          ON c.competition_id = ctx.competition_id AND c.season_id = ctx.season_id
+        WHERE c.competition_international
+        """
+    ).fetchone()[0]
+    assert bad == 0
+
+
 def test_pairs_are_canonically_ordered(con):
     assert con.sql(
         "SELECT COUNT(*) FROM teammate_edges WHERE player_id_a >= player_id_b"

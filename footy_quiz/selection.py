@@ -31,17 +31,23 @@ class PlayerCandidate:
 
 
 def _build_base_tables(con: duckdb.DuckDBPyConnection) -> None:
-    """(Re)builds the preset-independent temp tables: per-player stats and symmetric edges."""
+    """(Re)builds the preset-independent temp tables: per-player stats and symmetric edges.
+
+    Clubs only: national-team appearances (competition_international) are excluded from
+    both n_matches/n_clubs here and from teammate_edges (see graph.py) -- a player's
+    difficulty band should reflect only the club career a riddle can actually draw clues
+    from, not caps that inflate their stats but never appear in any clue.
+    """
     con.execute(
         """
         CREATE OR REPLACE TEMP TABLE _player_stats AS
         SELECT a.player_id,
                COUNT(*) AS n_matches,
-               COUNT(DISTINCT a.team_id) AS n_clubs,
-               MAX(CASE WHEN c.competition_international THEN 1 ELSE 0 END) AS has_international
+               COUNT(DISTINCT a.team_id) AS n_clubs
         FROM appearances a
         JOIN matches m ON m.match_id = a.match_id
         JOIN competitions c ON c.competition_id = m.competition_id AND c.season_id = m.season_id
+        WHERE NOT c.competition_international
         GROUP BY a.player_id
         """
     )
@@ -112,7 +118,7 @@ def rank_candidates(
 
     rows = con.execute(
         f"""
-        SELECT p.player_id, p.player_name, ps.n_matches, ps.n_clubs, ps.has_international
+        SELECT p.player_id, p.player_name, ps.n_matches, ps.n_clubs
         FROM players p
         JOIN _player_stats ps ON ps.player_id = p.player_id
         WHERE 1=1 {competition_filter}
@@ -120,7 +126,7 @@ def rank_candidates(
     ).fetchall()
 
     candidates: list[PlayerCandidate] = []
-    for player_id, player_name, n_matches, n_clubs, has_international in rows:
+    for player_id, player_name, n_matches, n_clubs in rows:
         assigned_difficulty = None
         assigned_n_rich = 0
         for name in config.DIFFICULTY_ORDER:
@@ -136,11 +142,7 @@ def rank_candidates(
         if difficulty != "any" and assigned_difficulty != difficulty:
             continue
 
-        score = (
-            3 * assigned_n_rich
-            + 2 * math.log(n_matches + 1)
-            + (1 if has_international else 0)
-        )
+        score = 3 * assigned_n_rich + 2 * math.log(n_matches + 1)
         candidates.append(
             PlayerCandidate(
                 player_id, player_name, n_matches, n_clubs, assigned_n_rich, assigned_difficulty, score
