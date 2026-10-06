@@ -13,5 +13,8 @@ import duckdb
 from footy_quiz.ingest import DEFAULT_DB_PATH
 
 
-def connect(db_path: Path = DEFAULT_DB_PATH) -> duckdb.DuckDBPyConnection:
-    return duckdb.connect(str(db_path), read_only=True)
+def connect(db_path: Path = DEFAULT_DB_PATH, read_only: bool = True) -> duckdb.DuckDBPyConnection:
+    """read_only=False is for callers that may need to lazily populate a cache as a side
+    effect of an otherwise-read operation (e.g. riddle.get_riddle() resolving media via
+    footy_quiz.media's get_or_fetch_* functions)."""
+    return duckdb.connect(str(db_path), read_only=read_only)

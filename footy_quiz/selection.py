@@ -166,3 +166,13 @@ def list_candidate_target_players(
     finally:
         con.close()
     return [c.player_id for c in candidates]
+
+
+def get_difficulty(con: duckdb.DuckDBPyConnection, player_id: int) -> Optional[str]:
+    """The single difficulty band one player is assigned -- used by riddle.get_riddle()
+    to know which preset's thresholds to re-derive clue material with. None if the player
+    doesn't qualify for any band (no teammate connection at all, even under "extreme")."""
+    for c in rank_candidates(con, difficulty="any", limit=100_000):
+        if c.player_id == player_id:
+            return c.difficulty
+    return None
