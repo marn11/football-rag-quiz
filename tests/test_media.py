@@ -100,6 +100,88 @@ def test_resolve_team_national_team_disambiguation(monkeypatch):
     assert method == "direct"  # first candidate for national teams IS the suffixed form
 
 
+def test_is_football_summary_accepts_multisport_club_phrasing():
+    # Regression: "Real Sociedad" (Spain) was described as a "Spanish sports club" --
+    # not "football club" -- which the old keyword list rejected outright, sending
+    # resolution to a search fallback that matched a same-named Honduran club instead.
+    multisport_summary = {
+        "type": "standard",
+        "description": "Spanish sports club",
+        "extract": "Is a Spanish professional sports club best known for its football team.",
+    }
+    assert media._is_football_summary(multisport_summary)
+
+
+def test_country_mismatch_rejects_wrong_country():
+    assert media._country_mismatch("Association football club in Honduras", "Spain")
+    assert not media._country_mismatch("Spanish sports club", "Spain")
+    assert not media._country_mismatch("Association football club in Spain", "Spain")
+
+
+def test_country_mismatch_silent_on_unmentioned_country():
+    # No known country named at all -- not treated as a mismatch (only ever rejects on
+    # a clear, positive signal of the WRONG country).
+    assert not media._country_mismatch("A sports club", "Spain")
+
+
+def test_country_mismatch_handles_statsbomb_formal_country_names():
+    assert media._country_mismatch("Association football club in Honduras", "Iran, Islamic Republic of")
+    assert not media._country_mismatch("A club in Iran", "Iran, Islamic Republic of")
+
+
+def test_resolve_team_rejects_same_named_club_in_wrong_country(monkeypatch):
+    # The actual bug: direct candidate "Real Sociedad" is correct but multisport-phrased
+    # (now accepted); without the country check, a planted wrong-country search result
+    # would still have been wrongly accepted.
+    def fake_fetch_summary(title):
+        if title == "Real Sociedad":
+            return {
+                "type": "standard",
+                "description": "Spanish sports club",
+                "extract": "Best known for its football team.",
+                "thumbnail": {"source": "https://example.org/real-sociedad-spain.png"},
+            }
+        return None
+
+    monkeypatch.setattr(media, "_fetch_summary", fake_fetch_summary)
+    result = media.resolve_team("Real Sociedad", is_national=False, country_name="Spain")
+    assert result is not None
+    title, summary, method = result
+    assert title == "Real Sociedad"
+    assert method == "direct"
+    assert "spain" in summary["thumbnail"]["source"].lower()
+
+
+def test_resolve_team_search_fallback_skips_wrong_country_result(monkeypatch):
+    def fake_fetch_summary(title):
+        if title == "C.D. Real Sociedad":
+            return {
+                "type": "standard",
+                "description": "Association football club in Honduras",
+                "thumbnail": {"source": "https://example.org/honduras.png"},
+            }
+        if title == "Real Sociedad (second division)":
+            return {
+                "type": "standard",
+                "description": "Association football club in Spain",
+                "thumbnail": {"source": "https://example.org/spain.png"},
+            }
+        return None  # all direct/disambiguator candidates fail to force search
+
+    monkeypatch.setattr(media, "_fetch_summary", fake_fetch_summary)
+    monkeypatch.setattr(
+        media,
+        "_search_titles",
+        lambda query, limit=5: ["C.D. Real Sociedad", "Real Sociedad (second division)"],
+    )
+
+    result = media.resolve_team("Unknown Real Sociedad Variant", is_national=False, country_name="Spain")
+    assert result is not None
+    title, summary, method = result
+    assert title == "Real Sociedad (second division)"
+    assert method == "search"
+
+
 def test_get_or_fetch_player_photo_caches_result(monkeypatch):
     con = duckdb.connect()
     con.execute(

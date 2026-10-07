@@ -38,9 +38,34 @@ FOOTBALL_KEYWORDS = (
     "football player",
     "association football",
     "football club",
+    "football team",
     "national football team",
     "soccer",
 )
+
+# Country names as they actually appear across this project's vendored dataset
+# (data/matches), simplified to the short form Wikipedia's own short descriptions
+# tend to use (e.g. "Association football club in Honduras"). Used only as a safety
+# net to catch a WRONG-country disambiguation -- e.g. "Real Sociedad" (Spain) resolving
+# to "C.D. Real Sociedad" (Honduras), a same-named club in a different country -- not
+# an exhaustive gazetteer, and never a basis for *accepting* a candidate, only rejecting
+# one that clearly names a different country than expected.
+_KNOWN_COUNTRIES = {
+    "Albania", "Algeria", "Angola", "Argentina", "Australia", "Austria", "Belgium",
+    "Bolivia", "Brazil", "Burkina Faso", "Cameroon", "Canada", "Cape Verde", "Chile",
+    "China", "Colombia", "Congo", "Costa Rica", "Croatia", "Czech Republic",
+    "Côte d'Ivoire", "Denmark", "Ecuador", "Egypt", "England", "Equatorial Guinea",
+    "Finland", "France", "Gambia", "Georgia", "Germany", "Ghana", "Greece", "Guinea",
+    "Guinea-Bissau", "Haiti", "Honduras", "Hungary", "Iceland", "India", "Iran",
+    "Ireland", "Italy", "Jamaica", "Japan", "Korea", "Macedonia", "Mali", "Mauritania",
+    "Mexico", "Monaco", "Morocco", "Mozambique", "Namibia", "Netherlands",
+    "New Zealand", "Nigeria", "Northern Ireland", "Norway", "Panama", "Paraguay",
+    "Peru", "Philippines", "Poland", "Portugal", "Qatar", "Romania", "Russia",
+    "Saudi Arabia", "Scotland", "Senegal", "Serbia", "Slovakia", "Slovenia",
+    "South Africa", "Spain", "Sweden", "Switzerland", "Tanzania", "Thailand",
+    "Tunisia", "Turkey", "Ukraine", "United States", "Uruguay", "Venezuela",
+    "Vietnam", "Wales", "Zambia",
+}
 
 
 def _http_get_json(url: str, params: Optional[dict] = None) -> Optional[dict]:
@@ -60,6 +85,29 @@ def _is_football_summary(summary: dict) -> bool:
         return False
     text = f"{summary.get('description') or ''} {summary.get('extract') or ''}".lower()
     return any(kw in text for kw in FOOTBALL_KEYWORDS)
+
+
+def _normalize_country(country_name: str) -> str:
+    """StatsBomb sometimes gives formal/ISO-style names ("Iran, Islamic Republic of",
+    "Korea\xa0(South)") -- take just the common short form used for substring matching."""
+    cleaned = country_name.replace("\xa0", " ")
+    for sep in (",", "("):
+        cleaned = cleaned.split(sep)[0]
+    return cleaned.strip()
+
+
+def _country_mismatch(description: str, expected_country: str) -> bool:
+    """True if `description` clearly names a DIFFERENT known country than expected --
+    e.g. the resolved page says "Association football club in Honduras" when we
+    expected Spain. Only ever a basis for REJECTING a candidate, never for accepting
+    one -- if no known country is mentioned at all, that's not treated as a mismatch."""
+    if not description or not expected_country:
+        return False
+    expected = _normalize_country(expected_country).lower()
+    lowered = description.lower()
+    if expected in lowered:
+        return False
+    return any(country.lower() in lowered for country in _KNOWN_COUNTRIES if country.lower() != expected)
 
 
 def _fetch_summary(title: str) -> Optional[dict]:
@@ -95,18 +143,30 @@ def fetch_full_extract(title: str) -> Optional[str]:
 
 
 def _resolve(
-    candidate_titles: list[tuple[str, str]], search_query: str
+    candidate_titles: list[tuple[str, str]],
+    search_query: str,
+    expected_country: str = "",
 ) -> Optional[tuple[str, dict, str]]:
     """Tries each (title, method) candidate via the REST summary endpoint, then falls back
-    to search. Returns (resolved_title, summary_json, method), or None if nothing resolved."""
+    to search. Returns (resolved_title, summary_json, method), or None if nothing resolved.
+    expected_country (when given) rejects an otherwise-matching candidate that clearly
+    names a different country -- see _country_mismatch."""
     for title, method in candidate_titles:
         summary = _fetch_summary(title)
-        if summary and _is_football_summary(summary):
+        if (
+            summary
+            and _is_football_summary(summary)
+            and not _country_mismatch(summary.get("description", ""), expected_country)
+        ):
             return title, summary, method
 
     for title in _search_titles(search_query):
         summary = _fetch_summary(title)
-        if summary and _is_football_summary(summary):
+        if (
+            summary
+            and _is_football_summary(summary)
+            and not _country_mismatch(summary.get("description", ""), expected_country)
+        ):
             return title, summary, "search"
 
     return None
@@ -128,7 +188,9 @@ def resolve_player(player_name: str, player_nickname: Optional[str]) -> Optional
     return _resolve(candidates, f"{search_name} footballer")
 
 
-def resolve_team(team_name: str, is_national: bool) -> Optional[tuple[str, dict, str]]:
+def resolve_team(
+    team_name: str, is_national: bool, country_name: str = ""
+) -> Optional[tuple[str, dict, str]]:
     if is_national:
         candidates = [
             (f"{team_name} national football team", "direct"),
@@ -141,7 +203,11 @@ def resolve_team(team_name: str, is_national: bool) -> Optional[tuple[str, dict,
             (f"{team_name} CF", "disambiguator"),
             (f"{team_name} (football club)", "disambiguator"),
         ]
-    return _resolve(candidates, f"{team_name} football club")
+    # Country-qualifying the search query helps Wikipedia's own ranking surface the
+    # right club when multiple same-named clubs exist in different countries (common
+    # with generic names: "Real Sociedad", "Nacional", "Deportivo", "Unión", ...).
+    search_query = f"{team_name} {country_name} football club".strip()
+    return _resolve(candidates, search_query, expected_country=country_name)
 
 
 def _is_national_team(con: duckdb.DuckDBPyConnection, team_id: int) -> bool:
@@ -193,12 +259,12 @@ def get_or_fetch_team_crest(
     if cached:
         return cached[0]
 
-    (team_name,) = con.execute(
-        "SELECT team_name FROM teams WHERE team_id = ?", [team_id]
+    team_name, country_name = con.execute(
+        "SELECT team_name, country_name FROM teams WHERE team_id = ?", [team_id]
     ).fetchone()
     is_national = _is_national_team(con, team_id)
 
-    result = resolve_team(team_name, is_national)
+    result = resolve_team(team_name, is_national, country_name or "")
     time.sleep(sleep_s)
 
     title, method, crest_url = (None, "unresolved", None)
