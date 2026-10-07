@@ -34,17 +34,15 @@ def test_select_clue_pairs_maximizes_club_breadth():
     assert len({team_id for _, team_id in chosen}) == 3
 
 
-def test_select_clue_pairs_caps_same_club_backfill_instead_of_padding():
-    # Regression: a player whose only real signal is one club (e.g. "spent 3+ years at
-    # Eibar") must NOT get padded out to max_clues near-duplicate "same club, different
-    # season" clues -- that's a thin, repetitive, not-fun riddle. Capped to at most
-    # MAX_SAME_CLUB_BACKFILL extra clue beyond the first, even with plenty of teammates
-    # available to pad further.
+def test_select_clue_pairs_never_shows_two_unrelated_teammates_from_one_club():
+    # Regression: real example -- a riddle showed "Messi at PSG 2021/22" AND
+    # "Kehrer at PSG 2021/22" as two separate clues. Two unrelated teammates from the
+    # same club reads as arbitrary padding, not information. A player whose only real
+    # signal is one club (e.g. "spent 3+ years at Eibar") now gets exactly ONE honest
+    # clue, never padded with a second, unrelated teammate from that same club.
     qualifying = [(100 + i, 500, 10 - i) for i in range(5)]  # 1 club, 5 teammates
     chosen = _select_clue_pairs(qualifying, max_clues=3)
-    assert len(chosen) == 2
-    assert all(team_id == 500 for _, team_id in chosen)
-    assert len({teammate_id for teammate_id, _ in chosen}) == 2  # distinct teammates
+    assert len(chosen) == 1
 
 
 def test_select_clue_pairs_prioritizes_recurring_costar_then_fills_breadth():
@@ -89,14 +87,14 @@ def test_clues_have_distinct_teams_unless_recurring_costar():
     assert len(team_ids) == len(set(team_ids))  # each clue is a distinct club
 
 
-def test_di_maria_fills_available_clue_slots_not_just_the_costar_pair():
-    # Regression: clue generation used to stop at however many "rich" clubs a player
-    # had (often just the recurring co-star's clubs), instead of using every club with
-    # at least one qualifying teammate. Di María played for several clubs beyond Real
-    # Madrid/PSG (Benfica, Manchester United, Juventus), so a 3rd clue should be
-    # available even though only 2 clubs supply the Ramos co-star storyline.
+def test_di_maria_does_not_pad_beyond_genuinely_qualifying_clubs():
+    # Under "easy" tier's strict per-teammate thresholds, Di María only has 2 genuinely
+    # qualifying clubs in this dataset (both consumed by the Ramos co-star story) -- no
+    # 3rd club meets the bar. Asking for max_clues=3 must NOT pad with an unrelated
+    # extra teammate from Real Madrid or PSG to hit 3; 2 honest clues is correct.
     r = riddle.get_riddle(DI_MARIA, max_clues=3)
-    assert len(r.clues) == 3
+    assert len(r.clues) == 2
+    assert {c.teammate_player_id for c in r.clues} == {RAMOS}
 
 
 def test_every_clue_has_a_crest_and_sortable_year():
