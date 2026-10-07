@@ -97,3 +97,23 @@ CREATE TABLE team_wiki (
     crest_url VARCHAR,
     fetched_at TIMESTAMP NOT NULL
 );
+
+-- Full Wikipedia article text for a player (reuses player_wiki's already-resolved title --
+-- this is a different endpoint, the full plaintext body, not the short summary extract
+-- used for the photo/description check). One row per player, fetched lazily.
+CREATE TABLE wiki_pages (
+    player_id INTEGER PRIMARY KEY REFERENCES players(player_id),
+    wiki_title VARCHAR NOT NULL,
+    raw_extract VARCHAR NOT NULL,
+    fetched_at TIMESTAMP NOT NULL
+);
+
+-- Sentence-level (occasionally 2-sentence) chunks of wiki_pages.raw_extract, embedded
+-- with all-MiniLM-L6-v2 (384-dim) for the live RAG hint retrieval pipeline.
+CREATE TABLE wiki_chunks (
+    player_id INTEGER NOT NULL REFERENCES players(player_id),
+    chunk_index INTEGER NOT NULL,
+    text VARCHAR NOT NULL,
+    embedding FLOAT[384] NOT NULL,
+    PRIMARY KEY (player_id, chunk_index)
+);

@@ -28,7 +28,7 @@ import duckdb
 logger = logging.getLogger(__name__)
 
 REST_SUMMARY_URL = "https://en.wikipedia.org/api/rest_v1/page/summary/{title}"
-SEARCH_API_URL = "https://en.wikipedia.org/w/api.php"
+ACTION_API_URL = "https://en.wikipedia.org/w/api.php"
 USER_AGENT = "footy-quiz/0.1 (https://github.com/marn11/rag-footy-quiz)"
 REQUEST_TIMEOUT_S = 10
 SEARCH_RESULT_LIMIT = 5
@@ -69,12 +69,29 @@ def _fetch_summary(title: str) -> Optional[dict]:
 
 def _search_titles(query: str, limit: int = SEARCH_RESULT_LIMIT) -> list[str]:
     data = _http_get_json(
-        SEARCH_API_URL,
+        ACTION_API_URL,
         {"action": "query", "list": "search", "srsearch": query, "format": "json", "srlimit": limit},
     )
     if not data:
         return []
     return [r["title"] for r in data.get("query", {}).get("search", [])]
+
+
+def fetch_full_extract(title: str) -> Optional[str]:
+    """Full plaintext article body for an ALREADY-RESOLVED title -- a different endpoint
+    from _fetch_summary (which only returns a short intro, used for resolution/photos).
+    Used by the hint pipeline (footy_quiz.hints.store) to get real prose to chunk."""
+    data = _http_get_json(
+        ACTION_API_URL,
+        {"action": "query", "prop": "extracts", "explaintext": 1, "titles": title, "format": "json"},
+    )
+    if not data:
+        return None
+    for page in data.get("query", {}).get("pages", {}).values():
+        extract = page.get("extract")
+        if extract:
+            return extract
+    return None
 
 
 def _resolve(

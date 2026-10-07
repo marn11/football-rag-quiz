@@ -5,7 +5,9 @@ description = "Football quiz: deterministic riddle generation + live RAG hints"
 requires-python = ">=3.12,<3.13"
 dependencies = [
     "duckdb>=1.1",
+    "pysbd>=0.3.4",
     "rapidfuzz>=3.14.6",
+    "sentence-transformers>=6.1.0",
 ]
 
 [tool.uv]
