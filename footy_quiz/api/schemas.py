@@ -45,3 +45,9 @@ class GuessResponse(BaseModel):
 
 class RevealResponse(BaseModel):
     player_name: str
+
+
+class AutocompleteResult(BaseModel):
+    player_id: int
+    player_name: str
+    player_nickname: Optional[str]

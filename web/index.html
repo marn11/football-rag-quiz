@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guess the Player</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>⚽ Guess the Player</h1>
+    <div class="new-game-row">
+      <label for="difficulty">Difficulty</label>
+      <select id="difficulty">
+        <option value="easy">Easy</option>
+        <option value="normal" selected>Normal</option>
+        <option value="hard">Hard</option>
+        <option value="extreme">Extreme</option>
+      </select>
+      <button id="new-game-btn">New Game</button>
+    </div>
+  </header>
+
+  <main id="game" hidden>
+    <section id="clues-section">
+      <div class="section-header">
+        <h2>Clues</h2>
+        <button id="reorder-btn" title="Re-sort the clues by when they actually happened">
+          Reorder chronologically
+        </button>
+      </div>
+      <div id="clues-container" class="clues-grid"></div>
+    </section>
+
+    <section id="hints-section">
+      <div class="section-header">
+        <h2>Hints</h2>
+        <button id="hint-btn">Get Hint</button>
+      </div>
+      <ul id="hints-list"></ul>
+    </section>
+
+    <section id="guess-section">
+      <h2>Your Guess</h2>
+      <form id="guess-form" autocomplete="off">
+        <div class="guess-input-wrap">
+          <input id="guess-input" type="text" placeholder="Type a player's name..." />
+          <ul id="autocomplete-list" class="autocomplete-list" hidden></ul>
+        </div>
+        <button type="submit">Guess</button>
+        <button type="button" id="reveal-btn">Give Up</button>
+      </form>
+      <p id="feedback" class="feedback"></p>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

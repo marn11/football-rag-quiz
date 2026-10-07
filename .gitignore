@@ -14,3 +14,6 @@ __pycache__/
 
 # Env
 .env
+
+# Playwright MCP verification artifacts (screenshots, snapshots) -- not deliverables
+.playwright-mcp/

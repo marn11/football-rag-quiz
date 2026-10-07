@@ -10,8 +10,11 @@ module's docstring for the persistence caveat.
 from __future__ import annotations
 
 import random
+from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
+from fastapi.staticfiles import StaticFiles
 
 import footy_quiz
 from footy_quiz import riddle
@@ -21,7 +24,20 @@ from footy_quiz.db import connect
 from footy_quiz.hints import llm_hint, store
 from footy_quiz.hints.session import HintSessionState, get_next_hint
 
-app = FastAPI(title="Footy Quiz -- Guess the Player")
+WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Load the embedding model on the main thread at startup, not lazily inside a
+    # request's threadpool worker -- loading torch/tokenizers for the first time off
+    # the main thread crashed the server outright (no Python traceback, just an exit)
+    # the first time a hint request triggered it mid-request.
+    store._get_model()
+    yield
+
+
+app = FastAPI(title="Footy Quiz -- Guess the Player", lifespan=lifespan)
 
 
 def _clue_to_schema(c: riddle.Clue) -> schemas.ClueOut:
@@ -122,3 +138,14 @@ def reveal(game_id: str) -> schemas.RevealResponse:
     finally:
         con.close()
     return schemas.RevealResponse(player_name=row[0])
+
+
+@app.get("/api/players/autocomplete", response_model=list[schemas.AutocompleteResult])
+def autocomplete(prefix: str, limit: int = 10) -> list[schemas.AutocompleteResult]:
+    results = footy_quiz.autocomplete_candidates(prefix, limit=limit)
+    return [schemas.AutocompleteResult(**r) for r in results]
+
+
+# Registered last so the explicit /api/* routes above are matched first -- anything else
+# (/, /app.js, /style.css) falls through to the static frontend (checkpoint 14).
+app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="static")
