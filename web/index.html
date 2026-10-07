@@ -4,11 +4,19 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Guess the Player</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+  <div class="pitch-bg" aria-hidden="true"></div>
+
   <header>
-    <h1>⚽ Guess the Player</h1>
+    <div class="title-block">
+      <h1>Guess the Player</h1>
+      <p class="subtitle">Name the mystery footballer from the old teammates who gave them away.</p>
+    </div>
     <div class="new-game-row">
       <label for="difficulty">Difficulty</label>
       <select id="difficulty">
@@ -17,40 +25,40 @@
         <option value="hard">Hard</option>
         <option value="extreme">Extreme</option>
       </select>
-      <button id="new-game-btn">New Game</button>
+      <button id="new-game-btn" class="btn-primary">New Game</button>
     </div>
   </header>
 
   <main id="game" hidden>
-    <section id="clues-section">
+    <section id="clues-section" class="panel">
       <div class="section-header">
-        <h2>Clues</h2>
-        <button id="reorder-btn" title="Re-sort the clues by when they actually happened">
-          Reorder chronologically
+        <h2><span class="pennant">The Line-up</span></h2>
+        <button id="reorder-btn" class="btn-ghost" title="Re-sort the clues by when they actually happened">
+          ⟳ Sort by year
         </button>
       </div>
       <div id="clues-container" class="clues-grid"></div>
     </section>
 
-    <section id="hints-section">
+    <section id="hints-section" class="panel">
       <div class="section-header">
-        <h2>Hints</h2>
-        <button id="hint-btn">Get Hint</button>
+        <h2><span class="pennant">Need a Clue?</span></h2>
+        <button id="hint-btn" class="btn-card">Get Hint</button>
       </div>
       <ul id="hints-list"></ul>
     </section>
 
-    <section id="guess-section">
-      <h2>Your Guess</h2>
+    <section id="guess-section" class="panel">
+      <h2><span class="pennant">Who Is It?</span></h2>
       <form id="guess-form" autocomplete="off">
         <div class="guess-input-wrap">
           <input id="guess-input" type="text" placeholder="Type a player's name..." />
           <ul id="autocomplete-list" class="autocomplete-list" hidden></ul>
         </div>
-        <button type="submit">Guess</button>
-        <button type="button" id="reveal-btn">Give Up</button>
+        <button type="submit" class="btn-primary">Guess</button>
+        <button type="button" id="reveal-btn" class="btn-danger">Full Time</button>
       </form>
-      <p id="feedback" class="feedback"></p>
+      <div id="feedback" class="feedback"></div>
     </section>
   </main>
 

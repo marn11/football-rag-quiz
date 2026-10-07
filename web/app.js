@@ -95,9 +95,22 @@ function reorderChronologically() {
   renderClues(sorted);
 }
 
-function setFeedback(text, kind) {
-  el.feedback.textContent = text;
+function setFeedback(headline, detail, kind) {
+  el.feedback.innerHTML = "";
   el.feedback.className = `feedback ${kind || ""}`;
+  if (!headline) return;
+
+  const h = document.createElement("span");
+  h.className = "headline";
+  h.textContent = headline;
+  el.feedback.appendChild(h);
+
+  if (detail) {
+    const d = document.createElement("span");
+    d.className = "detail";
+    d.textContent = detail;
+    el.feedback.appendChild(d);
+  }
 }
 
 function addHint(text) {
@@ -115,7 +128,7 @@ function lockGame() {
 }
 
 async function startGame() {
-  setFeedback("", "");
+  setFeedback("", "", "");
   el.hintsList.innerHTML = "";
   el.cluesContainer.innerHTML = "";
   el.guessInput.value = "";
@@ -156,17 +169,18 @@ async function submitGuess(guess) {
     body: JSON.stringify({ guess }),
   });
   if (data.correct) {
-    setFeedback(data.message, "correct");
+    const detail = data.message.replace(/^Correct!\s*/, "");
+    setFeedback("GOAL!", detail, "correct");
     lockGame();
   } else {
-    setFeedback(data.message, "incorrect");
+    setFeedback("OFFSIDE!", data.message, "incorrect");
   }
 }
 
 async function reveal() {
   if (!gameId || solved) return;
   const data = await api(`/api/games/${gameId}/reveal`, { method: "POST" });
-  setFeedback(`It was ${data.player_name}.`, "incorrect");
+  setFeedback("FULL TIME", `It was ${data.player_name}.`, "reveal");
   lockGame();
 }
 
@@ -200,16 +214,16 @@ async function fetchAutocomplete(prefix) {
   el.autocompleteList.hidden = false;
 }
 
-el.newGameBtn.addEventListener("click", () => startGame().catch((e) => setFeedback(e.message, "incorrect")));
-el.hintBtn.addEventListener("click", () => getHint().catch((e) => setFeedback(e.message, "incorrect")));
+el.newGameBtn.addEventListener("click", () => startGame().catch((e) => setFeedback("Error", e.message, "incorrect")));
+el.hintBtn.addEventListener("click", () => getHint().catch((e) => setFeedback("Error", e.message, "incorrect")));
 el.reorderBtn.addEventListener("click", reorderChronologically);
-el.revealBtn.addEventListener("click", () => reveal().catch((e) => setFeedback(e.message, "incorrect")));
+el.revealBtn.addEventListener("click", () => reveal().catch((e) => setFeedback("Error", e.message, "incorrect")));
 
 el.guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
   clearTimeout(autocompleteTimer); // a pending debounced fetch would otherwise re-show
   hideAutocomplete();              // the dropdown right after it's hidden here
-  submitGuess(el.guessInput.value).catch((e) => setFeedback(e.message, "incorrect"));
+  submitGuess(el.guessInput.value).catch((e) => setFeedback("Error", e.message, "incorrect"));
 });
 
 el.guessInput.addEventListener("input", () => {

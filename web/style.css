@@ -1,180 +1,339 @@
+/* ---------- Design tokens ---------- */
 :root {
-  --bg: #0f1420;
-  --panel: #171e2e;
-  --border: #2a3348;
-  --text: #e8ecf4;
-  --muted: #8a93a8;
-  --accent: #4caf7d;
-  --accent-hover: #5fc991;
-  --danger: #e2615b;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --pitch: #1B6B46;
+  --pitch-dark: #175A3B;
+  --panel: #0B2A1E;
+  --panel-raised: #123B29;
+  --chalk: #F6FAF5;
+  --ink: #0A1F18;
+  --gold: #F4B93C;
+  --gold-dim: #C99A32;
+  --goal-green: #42E08A;
+  --card-red: #E5483C;
+  --muted: #9FC7B2;
+  --border: #1F4E37;
+
+  --font-display: "Bungee", "Arial Black", sans-serif;
+  --font-body: "Rubik", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 * {
   box-sizing: border-box;
 }
 
-body {
+html, body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  min-height: 100vh;
+  min-height: 100%;
 }
 
+body {
+  font-family: var(--font-body);
+  color: var(--chalk);
+  background: var(--pitch);
+  position: relative;
+}
+
+/* Mowed-pitch stripes behind everything -- fixed so panels read as sitting on a field,
+   not just a flat color wash. Content never sits directly on the stripes (it lives in
+   opaque panels), so legibility is untouched. */
+.pitch-bg {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: repeating-linear-gradient(
+    100deg,
+    var(--pitch) 0px,
+    var(--pitch) 90px,
+    var(--pitch-dark) 90px,
+    var(--pitch-dark) 180px
+  );
+}
+
+/* ---------- Layout ---------- */
 header {
-  padding: 24px;
-  border-bottom: 1px solid var(--border);
+  max-width: 980px;
+  margin: 0 auto;
+  padding: 32px 24px 20px;
   display: flex;
-  align-items: center;
+  align-items: flex-end;
   justify-content: space-between;
   flex-wrap: wrap;
-  gap: 16px;
+  gap: 20px;
 }
 
-h1 {
+.title-block h1 {
+  font-family: var(--font-display);
+  font-size: clamp(2rem, 5vw, 3.2rem);
   margin: 0;
-  font-size: 1.5rem;
+  color: var(--chalk);
+  letter-spacing: 0.01em;
+  text-shadow: 3px 3px 0 var(--pitch-dark);
+}
+
+.subtitle {
+  margin: 8px 0 0;
+  color: var(--muted);
+  font-size: 0.95rem;
+  max-width: 46ch;
 }
 
 .new-game-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
-select, input[type="text"] {
-  background: var(--panel);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 8px 10px;
-  border-radius: 6px;
-  font-size: 0.95rem;
-}
-
-button {
-  background: var(--accent);
-  color: #06160f;
-  border: none;
-  padding: 8px 14px;
-  border-radius: 6px;
-  font-weight: 600;
-  cursor: pointer;
-  font-size: 0.95rem;
-}
-
-button:hover {
-  background: var(--accent-hover);
-}
-
-button:disabled {
-  background: var(--border);
+.new-game-row label {
   color: var(--muted);
-  cursor: not-allowed;
-}
-
-#reveal-btn {
-  background: var(--danger);
-  color: #1a0b0a;
+  font-size: 0.9rem;
 }
 
 main {
-  max-width: 900px;
+  max-width: 980px;
   margin: 0 auto;
-  padding: 24px;
+  padding: 0 24px 60px;
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: 22px;
 }
 
-section {
+.panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 18px;
+  border-radius: 14px;
+  padding: 20px 22px;
 }
 
 .section-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 .section-header h2 {
   margin: 0;
-  font-size: 1.1rem;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
+/* Section labels as a corner-flag pennant instead of a letterspaced ALL-CAPS eyebrow. */
+.pennant {
+  position: relative;
+  display: inline-block;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--ink);
+  background: var(--gold);
+  padding: 6px 18px 6px 14px;
+  border-radius: 3px 10px 10px 3px;
+}
+
+.pennant::after {
+  content: "";
+  position: absolute;
+  left: 100%;
+  top: 0;
+  border-style: solid;
+  border-width: 11px 0 11px 10px;
+  border-color: transparent transparent transparent var(--gold);
+}
+
+/* ---------- Buttons ---------- */
+select, input[type="text"] {
+  background: var(--panel-raised);
+  border: 1px solid var(--border);
+  color: var(--chalk);
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+}
+
+select:focus-visible, input[type="text"]:focus-visible {
+  outline: 3px solid var(--gold);
+  outline-offset: 1px;
+}
+
+button {
+  font-family: var(--font-body);
+  font-weight: 700;
+  border: none;
+  padding: 10px 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: transform 0.12s ease;
+}
+
+button:focus-visible {
+  outline: 3px solid var(--chalk);
+  outline-offset: 2px;
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+button:disabled {
+  background: var(--border) !important;
+  color: var(--muted) !important;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.btn-primary {
+  background: var(--goal-green);
+  color: var(--ink);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: #58e89c;
+}
+
+.btn-danger {
+  background: var(--card-red);
+  color: var(--chalk);
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #ef5c50;
+}
+
+.btn-ghost {
+  background: var(--panel-raised);
+  color: var(--chalk);
+  border: 1px solid var(--border);
+}
+
+.btn-ghost:hover:not(:disabled) {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+/* The hint button styled like a referee's card: upright rectangle, gold, slight tilt. */
+.btn-card {
+  background: var(--gold);
+  color: var(--ink);
+  border-radius: 4px;
+  padding: 10px 16px;
+  transform: rotate(-2deg);
+}
+
+.btn-card:hover:not(:disabled) {
+  background: #ffc856;
+  transform: rotate(0deg);
+}
+
+/* ---------- Clue cards (sticker-album style, not a SaaS card grid) ---------- */
 .clues-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+  justify-content: center;
+  padding-top: 4px;
 }
 
 .clue-card {
-  background: #10182a;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  background: var(--chalk);
+  color: var(--ink);
+  border-radius: 12px;
+  border: 3px solid var(--gold);
   padding: 14px;
+  width: 190px;
   display: flex;
   flex-direction: column;
   align-items: center;
   text-align: center;
   gap: 8px;
+  box-shadow: 5px 5px 0 var(--panel-raised);
+  transition: transform 0.18s ease, box-shadow 0.18s ease;
+  animation: deal-in 0.4s ease backwards;
+}
+
+.clue-card:nth-child(3n+1) { transform: rotate(-2deg); }
+.clue-card:nth-child(3n+2) { transform: rotate(1.5deg); }
+.clue-card:nth-child(3n+3) { transform: rotate(-1deg); }
+
+.clue-card:nth-child(2) { animation-delay: 0.08s; }
+.clue-card:nth-child(3) { animation-delay: 0.16s; }
+.clue-card:nth-child(4) { animation-delay: 0.24s; }
+.clue-card:nth-child(5) { animation-delay: 0.32s; }
+
+.clue-card:hover {
+  transform: rotate(0deg) translateY(-4px);
+  box-shadow: 7px 9px 0 var(--panel-raised);
+}
+
+@keyframes deal-in {
+  from {
+    opacity: 0;
+    transform: translateY(-24px) rotate(-8deg) scale(0.9);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clue-card { animation: none; }
 }
 
 .clue-card .avatars {
   display: flex;
   align-items: flex-end;
   justify-content: center;
-  gap: -10px;
 }
 
 .clue-card img.teammate-photo {
-  width: 72px;
-  height: 72px;
+  width: 76px;
+  height: 76px;
   border-radius: 50%;
   object-fit: cover;
-  border: 2px solid var(--border);
-  background: #222b3f;
+  border: 2px solid var(--ink);
+  background: var(--panel-raised);
 }
 
 .clue-card .photo-placeholder {
-  width: 72px;
-  height: 72px;
+  width: 76px;
+  height: 76px;
   border-radius: 50%;
-  border: 2px solid var(--border);
-  background: #222b3f;
+  border: 2px solid var(--ink);
+  background: var(--panel-raised);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.6rem;
+  font-size: 1.7rem;
+  font-family: var(--font-display);
   color: var(--muted);
 }
 
 .clue-card img.crest {
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
   object-fit: contain;
   margin-left: -16px;
-  margin-bottom: -4px;
+  margin-bottom: -2px;
   background: #fff;
   border-radius: 50%;
   padding: 2px;
+  border: 2px solid var(--ink);
 }
 
 .clue-card .teammate-name {
-  font-weight: 600;
+  font-weight: 700;
+  line-height: 1.2;
 }
 
 .clue-card .club-season {
-  font-size: 0.85rem;
-  color: var(--muted);
+  font-size: 0.78rem;
+  color: #3c5c4e;
+  background: var(--panel);
+  color: var(--chalk);
+  border-radius: 999px;
+  padding: 3px 10px;
 }
 
+/* ---------- Hints ---------- */
 #hints-list {
   list-style: none;
   margin: 0;
@@ -185,21 +344,35 @@ section {
 }
 
 #hints-list li {
-  background: #10182a;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 10px 12px;
+  background: var(--panel-raised);
+  border-left: 4px solid var(--gold);
+  border-radius: 6px;
+  padding: 10px 14px;
+  counter-increment: hint;
 }
 
+#hints-list li::before {
+  content: "Hint " counter(hint) ": ";
+  font-weight: 700;
+  color: var(--gold);
+}
+
+#hints-list {
+  counter-reset: hint;
+}
+
+/* ---------- Guess form ---------- */
 #guess-form {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-start;
+  flex-wrap: wrap;
 }
 
 .guess-input-wrap {
   position: relative;
   flex: 1;
+  min-width: 200px;
 }
 
 #guess-input {
@@ -208,12 +381,12 @@ section {
 
 .autocomplete-list {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
-  background: var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  background: var(--panel-raised);
+  border: 1px solid var(--gold-dim);
+  border-radius: 8px;
   list-style: none;
   margin: 0;
   padding: 4px;
@@ -223,25 +396,41 @@ section {
 }
 
 .autocomplete-list li {
-  padding: 8px 10px;
-  border-radius: 4px;
+  padding: 9px 11px;
+  border-radius: 5px;
   cursor: pointer;
 }
 
 .autocomplete-list li:hover {
-  background: var(--border);
+  background: var(--pitch-dark);
+  color: var(--gold);
 }
 
+/* ---------- Feedback banner ---------- */
 .feedback {
-  margin-top: 12px;
-  font-weight: 600;
+  margin-top: 16px;
   min-height: 1.2em;
 }
 
-.feedback.correct {
-  color: var(--accent-hover);
+.feedback .headline {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  letter-spacing: 0.02em;
 }
 
-.feedback.incorrect {
-  color: var(--danger);
+.feedback .detail {
+  display: block;
+  margin-top: 4px;
+  font-size: 0.95rem;
+  color: var(--muted);
+}
+
+.feedback.correct .headline { color: var(--goal-green); }
+.feedback.incorrect .headline { color: var(--gold); }
+.feedback.reveal .headline { color: var(--card-red); }
+
+@media (max-width: 600px) {
+  header { flex-direction: column; align-items: flex-start; }
+  .clue-card { width: 100%; max-width: 240px; }
 }
