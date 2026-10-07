@@ -56,11 +56,26 @@ def normalize(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _surname_unit(normalized_nickname: str) -> str:
-    tokens = normalized_nickname.split()
+def _surname_unit_from_tokens(tokens: list[str]) -> str:
     if len(tokens) >= 2 and tokens[-2] in SURNAME_PARTICLES:
         return " ".join(tokens[-2:])
     return tokens[-1]
+
+
+def _surname_candidates(player_name: str, player_nickname: Optional[str]) -> set[str]:
+    """Surname-only identifying token(s), derived from WHICHEVER name fields are
+    available -- not just the nickname, since not every player has one stored (e.g.
+    "Giuseppe Rossi" has no separate nickname, so without this his surname-only guess
+    "Rossi" would be silently rejected). Mononym names (1 token) are skipped -- they
+    already match via the exact full-form check, nickname == surname there anyway."""
+    surnames: set[str] = set()
+    for name in (player_nickname, player_name):
+        if not name:
+            continue
+        tokens = normalize(name).split()
+        if len(tokens) >= 2:
+            surnames.add(_surname_unit_from_tokens(tokens))
+    return surnames
 
 
 def check_answer(target_player_id: int, guess: str) -> AnswerResult:
@@ -89,17 +104,15 @@ def check_answer(target_player_id: int, guess: str) -> AnswerResult:
         if normalized.replace(" ", "") == guess_nospace:
             return AnswerResult(True, display, "exact_nospace", 0)
 
-    surname = _surname_unit(normalize(player_nickname)) if player_nickname else None
-    if surname:
+    surnames = _surname_candidates(player_name, player_nickname)
+    for surname in surnames:
         if surname == normalized_guess or surname.replace(" ", "") == guess_nospace:
-            return AnswerResult(True, player_nickname, "exact_surname", 0)
+            return AnswerResult(True, player_nickname or player_name, "exact_surname", 0)
 
     if len(normalized_guess) < MIN_GUESS_LEN_FOR_TYPO_TOLERANCE:
         return AnswerResult(False, None, None, min(len(normalized_guess), 99))
 
-    compare_targets = [normalized for _, normalized in full_forms]
-    if surname:
-        compare_targets.append(surname)
+    compare_targets = [normalized for _, normalized in full_forms] + list(surnames)
 
     best_distance = min(Levenshtein.distance(t, normalized_guess) for t in compare_targets)
     if best_distance <= MAX_TYPO_EDIT_DISTANCE:

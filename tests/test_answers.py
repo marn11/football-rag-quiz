@@ -7,6 +7,7 @@ from footy_quiz.ingest import DEFAULT_DB_PATH
 
 MESSI = 5503  # nickname "Lionel Messi"
 DI_MARIA = 2995  # nickname "Ángel Di María" -- compound surname via particle "di"
+GIUSEPPE_ROSSI = 7141  # player_nickname IS NULL -- surname must come from player_name
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -26,6 +27,16 @@ def test_surname_only_guess_is_correct():
     r = answers.check_answer(MESSI, "Messi")
     assert r.correct
     assert r.confidence == "exact_surname"
+
+
+def test_surname_only_guess_works_without_a_stored_nickname():
+    # Regression: found live via the API -- a player with player_nickname = NULL
+    # must still accept a surname-only guess, derived from player_name instead.
+    r = answers.check_answer(GIUSEPPE_ROSSI, "Rossi")
+    assert r.correct
+    assert r.confidence == "exact_surname"
+    assert answers.check_answer(GIUSEPPE_ROSSI, "rossi").correct
+    assert not answers.check_answer(GIUSEPPE_ROSSI, "Giuseppe").correct
 
 
 def test_case_and_accent_insensitive():
