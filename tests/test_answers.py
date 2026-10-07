@@ -1,9 +1,8 @@
 """Sanity checks on answer validation + autocomplete. Requires build_db.py to have run."""
 
-import duckdb
 import pytest
 
-from footy_quiz import answers
+from footy_quiz import answers, db
 from footy_quiz.ingest import DEFAULT_DB_PATH
 
 MESSI = 5503  # nickname "Lionel Messi"
@@ -14,7 +13,7 @@ DI_MARIA = 2995  # nickname "Ángel Di María" -- compound surname via particle 
 def _require_db():
     if not DEFAULT_DB_PATH.exists():
         pytest.skip(f"{DEFAULT_DB_PATH} not built yet -- run scripts/build_db.py first")
-    conn = duckdb.connect(str(DEFAULT_DB_PATH), read_only=True)
+    conn = db.connect()
     conn.close()
 
 
@@ -62,6 +61,16 @@ def test_very_short_guess_is_rejected_not_fuzzy_matched():
 def test_unknown_player_id_raises():
     with pytest.raises(ValueError):
         answers.check_answer(999_999_999, "anyone")
+
+
+def test_autocomplete_below_min_length_returns_empty_without_querying():
+    assert answers.autocomplete_candidates("a", limit=10) == []
+
+
+def test_autocomplete_at_min_length_finds_a_real_two_letter_name():
+    # Wu Lei -- a real player in our data whose surname is exactly 2 characters.
+    results = answers.autocomplete_candidates("wu", limit=10)
+    assert any("Wu Lei" == r["player_nickname"] for r in results)
 
 
 def test_autocomplete_matches_second_word_token():

@@ -2,10 +2,9 @@
 Makes real network calls (media resolution) on first run per player; cached afterward.
 """
 
-import duckdb
 import pytest
 
-from footy_quiz import riddle
+from footy_quiz import db, riddle
 from footy_quiz.ingest import DEFAULT_DB_PATH
 
 DI_MARIA = 2995
@@ -16,7 +15,7 @@ RAMOS = 5201
 def _require_db():
     if not DEFAULT_DB_PATH.exists():
         pytest.skip(f"{DEFAULT_DB_PATH} not built yet -- run scripts/build_db.py first")
-    conn = duckdb.connect(str(DEFAULT_DB_PATH), read_only=True)
+    conn = db.connect()
     if conn.sql("SELECT COUNT(*) FROM teammate_edges").fetchone()[0] == 0:
         pytest.skip("teammate_edges is empty -- run scripts/build_graph.py first")
     conn.close()

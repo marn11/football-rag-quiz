@@ -1,9 +1,8 @@
 """Sanity checks on target-player selection. Requires build_db.py + build_graph.py to have run."""
 
-import duckdb
 import pytest
 
-from footy_quiz import selection
+from footy_quiz import db, selection
 from footy_quiz.ingest import DEFAULT_DB_PATH
 
 
@@ -11,7 +10,7 @@ from footy_quiz.ingest import DEFAULT_DB_PATH
 def con():
     if not DEFAULT_DB_PATH.exists():
         pytest.skip(f"{DEFAULT_DB_PATH} not built yet -- run scripts/build_db.py first")
-    conn = duckdb.connect(str(DEFAULT_DB_PATH), read_only=True)
+    conn = db.connect()
     if conn.sql("SELECT COUNT(*) FROM teammate_edges").fetchone()[0] == 0:
         pytest.skip("teammate_edges is empty -- run scripts/build_graph.py first")
     yield conn

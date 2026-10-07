@@ -1,8 +1,8 @@
 """Sanity checks on the built DuckDB file. Requires `uv run scripts/build_db.py` to have run."""
 
-import duckdb
 import pytest
 
+from footy_quiz import db
 from footy_quiz.ingest import DEFAULT_DB_PATH
 
 
@@ -10,7 +10,7 @@ from footy_quiz.ingest import DEFAULT_DB_PATH
 def con():
     if not DEFAULT_DB_PATH.exists():
         pytest.skip(f"{DEFAULT_DB_PATH} not built yet -- run scripts/build_db.py first")
-    conn = duckdb.connect(str(DEFAULT_DB_PATH), read_only=True)
+    conn = db.connect()
     yield conn
     conn.close()
 

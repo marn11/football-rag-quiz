@@ -30,6 +30,14 @@ SURNAME_PARTICLES = {
 MAX_TYPO_EDIT_DISTANCE = 2
 MIN_GUESS_LEN_FOR_TYPO_TOLERANCE = 3
 
+# Below this, autocomplete doesn't query at all -- checked against our own data: every
+# 1-character name/nickname token turned out to be a data artifact (a Catalan compound-
+# surname conjunction like "Puyol i Saforcada", or an abbreviated initial like "W.
+# Sneijder"), never a genuine short name. Real short names (e.g. "Wu Lei" -> "wu", "lei")
+# are both >=2 chars, so this costs nothing real. Doesn't affect check_answer at all --
+# a full guess can still be submitted and judged correct regardless of this minimum.
+MIN_AUTOCOMPLETE_PREFIX_LEN = 2
+
 
 @dataclass
 class AnswerResult:
@@ -106,7 +114,7 @@ def autocomplete_candidates(prefix: str, limit: int = 10) -> list[dict]:
     "Sergio Ramos", matching the second word, not just the start of the full string),
     ranked by how many matches they have in the dataset (a cheap popularity proxy)."""
     normalized_prefix = normalize(prefix)
-    if not normalized_prefix:
+    if len(normalized_prefix) < MIN_AUTOCOMPLETE_PREFIX_LEN:
         return []
 
     con = connect()
