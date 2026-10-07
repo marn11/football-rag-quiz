@@ -83,36 +83,127 @@ def _qualifying_teammates(
     return rows
 
 
-def _rich_clubs(qualifying: list[tuple[int, int, int]], min_strong_teammates: int) -> set[int]:
-    teammates_by_club: dict[int, set[int]] = {}
-    for teammate_id, team_id, _ in qualifying:
-        teammates_by_club.setdefault(team_id, set()).add(teammate_id)
-    return {tid for tid, mates in teammates_by_club.items() if len(mates) >= min_strong_teammates}
-
-
 def _best_context(
-    con: duckdb.DuckDBPyConnection, target_player_id: int, teammate_id: int, team_id: int
+    con: duckdb.DuckDBPyConnection,
+    target_player_id: int,
+    teammate_id: int,
+    team_id: int,
+    avoid_contexts: frozenset = frozenset(),
 ) -> Optional[tuple[int, int, str, str]]:
     """The (competition_id, season_id, competition_name, season_name) with the most shared
-    matches for this (target, teammate, club) triple -- tie-break earliest season."""
+    matches for this (target, teammate, club) triple -- tie-break earliest season.
+
+    `avoid_contexts` (already used elsewhere in this same riddle) is preferred against,
+    not forbidden: some of this dataset's competitions/seasons (2015/16 top-5-league
+    coverage especially) are far more complete than others, so the single best-attested
+    context is very often the same season across many different teammate pairs. Without
+    this, a 3-clue riddle could trivially read as "2015/16, 2015/16, 2015/16" even
+    though the underlying teammates are all different."""
     player_id_a, player_id_b = sorted((target_player_id, teammate_id))
-    return con.execute(
+    rows = con.execute(
         """
         SELECT ctx.competition_id, ctx.season_id, c.competition_name, c.season_name
         FROM teammate_edge_contexts ctx
         JOIN competitions c ON c.competition_id = ctx.competition_id AND c.season_id = ctx.season_id
         WHERE ctx.player_id_a = ? AND ctx.player_id_b = ? AND ctx.team_id = ?
         ORDER BY ctx.matches_in_context DESC, c.season_name ASC
-        LIMIT 1
         """,
         [player_id_a, player_id_b, team_id],
-    ).fetchone()
+    ).fetchall()
+    if not rows:
+        return None
+    for row in rows:
+        if (row[0], row[1]) not in avoid_contexts:
+            return row
+    return rows[0]
 
 
 def _season_start_year(season_name: str) -> int:
     # season_name is like "2016/2017" or a bare "2016" -- take the leading digits.
     digits = "".join(ch for ch in season_name[:4] if ch.isdigit())
     return int(digits) if digits else 0
+
+
+def _select_clue_pairs(
+    qualifying: list[tuple[int, int, int]], max_clues: int
+) -> list[tuple[int, int]]:
+    """Picks up to max_clues (teammate_id, team_id) pairs from every qualifying
+    (teammate, club) connection -- pure selection logic, no DB access, so it's directly
+    unit-testable. Deliberately NOT restricted to "rich" clubs (selection.py's
+    difficulty-TIERING concept): a well-traveled player can have 8-10 clubs in the data
+    where only one or two ever cross that multi-teammate bar, and restricting clue
+    generation to just those would mean showing the same one or two clubs for everyone
+    instead of reflecting the breadth of clubs they actually played for. So: any club
+    with at least one qualifying teammate is a valid clue source.
+
+    Priority order:
+    1. A recurring co-star (same teammate shared across >=2 clubs) -- one clue per club
+       they share, since that's a stronger, more memorable throughline than diversifying
+       across unrelated teammates.
+    2. One clue per still-unused DISTINCT club -- maximize club breadth, strongest
+       (highest shared_matches) teammate at each, strongest-signal club first.
+    3. Fallback only, if there are fewer distinct qualifying clubs than max_clues
+       (rare -- most players here span several clubs): additional, different teammates
+       from clubs already used, round-robin.
+    """
+    clubs_by_teammate: dict[int, set[int]] = {}
+    for teammate_id, team_id, _ in qualifying:
+        clubs_by_teammate.setdefault(teammate_id, set()).add(team_id)
+
+    recurring = sorted(
+        (tid for tid, clubs in clubs_by_teammate.items() if len(clubs) >= 2),
+        key=lambda tid: -len(clubs_by_teammate[tid]),
+    )
+
+    chosen: list[tuple[int, int]] = []  # (teammate_id, team_id), one per clue
+    used_pairs: set[tuple[int, int]] = set()
+    used_clubs: set[int] = set()
+
+    if recurring:
+        co_star = recurring[0]
+        for team_id in sorted(clubs_by_teammate[co_star]):
+            if len(chosen) >= max_clues:
+                break
+            chosen.append((co_star, team_id))
+            used_pairs.add((co_star, team_id))
+            used_clubs.add(team_id)
+
+    best_per_club: dict[int, tuple[int, int]] = {}  # team_id -> (teammate_id, shared_matches)
+    for teammate_id, team_id, shared_matches in qualifying:
+        if team_id in used_clubs:
+            continue
+        current = best_per_club.get(team_id)
+        if current is None or shared_matches > current[1]:
+            best_per_club[team_id] = (teammate_id, shared_matches)
+
+    for team_id in sorted(best_per_club, key=lambda tid: -best_per_club[tid][1]):
+        if len(chosen) >= max_clues:
+            break
+        teammate_id, _ = best_per_club[team_id]
+        chosen.append((teammate_id, team_id))
+        used_pairs.add((teammate_id, team_id))
+        used_clubs.add(team_id)
+
+    if len(chosen) < max_clues:
+        by_club: dict[int, list[tuple[int, int]]] = {}
+        for teammate_id, team_id, shared_matches in qualifying:
+            if (teammate_id, team_id) in used_pairs:
+                continue
+            by_club.setdefault(team_id, []).append((teammate_id, shared_matches))
+        for team_id in by_club:
+            by_club[team_id].sort(key=lambda t: -t[1])
+
+        club_order = sorted(by_club, key=lambda tid: -by_club[tid][0][1])
+        while len(chosen) < max_clues and any(by_club[tid] for tid in club_order):
+            for team_id in club_order:
+                if len(chosen) >= max_clues:
+                    break
+                if by_club[team_id]:
+                    teammate_id, _ = by_club[team_id].pop(0)
+                    chosen.append((teammate_id, team_id))
+                    used_pairs.add((teammate_id, team_id))
+
+    return chosen
 
 
 def get_riddle(target_player_id: int, max_clues: int = 3) -> Riddle:
@@ -124,52 +215,15 @@ def get_riddle(target_player_id: int, max_clues: int = 3) -> Riddle:
         preset = config.DIFFICULTY_PRESETS[difficulty]
 
         qualifying = _qualifying_teammates(con, target_player_id, preset)
-        rich_clubs = _rich_clubs(qualifying, preset["min_strong_teammates_per_rich_club"])
-        qualifying = [row for row in qualifying if row[1] in rich_clubs]
-
-        # Recurring co-star detection: teammate_id -> the rich clubs they share with target.
-        clubs_by_teammate: dict[int, set[int]] = {}
-        for teammate_id, team_id, _ in qualifying:
-            clubs_by_teammate.setdefault(teammate_id, set()).add(team_id)
-
-        recurring = sorted(
-            (tid for tid, clubs in clubs_by_teammate.items() if len(clubs) >= 2),
-            key=lambda tid: -len(clubs_by_teammate[tid]),
-        )
-
-        chosen: list[tuple[int, int]] = []  # (teammate_id, team_id), one per clue
-        used_clubs: set[int] = set()
-
-        if recurring:
-            co_star = recurring[0]
-            for team_id in sorted(clubs_by_teammate[co_star]):
-                if len(chosen) >= max_clues:
-                    break
-                chosen.append((co_star, team_id))
-                used_clubs.add(team_id)
-
-        # Fill remaining slots: strongest teammate at each still-unused rich club,
-        # richest clubs (by that teammate's shared_matches) first.
-        best_per_club: dict[int, tuple[int, int]] = {}  # team_id -> (teammate_id, shared_matches)
-        for teammate_id, team_id, shared_matches in qualifying:
-            if team_id in used_clubs:
-                continue
-            current = best_per_club.get(team_id)
-            if current is None or shared_matches > current[1]:
-                best_per_club[team_id] = (teammate_id, shared_matches)
-
-        for team_id in sorted(best_per_club, key=lambda tid: -best_per_club[tid][1]):
-            if len(chosen) >= max_clues:
-                break
-            teammate_id, _ = best_per_club[team_id]
-            chosen.append((teammate_id, team_id))
-            used_clubs.add(team_id)
+        chosen = _select_clue_pairs(qualifying, max_clues)
 
         clues: list[Clue] = []
+        used_contexts: set[tuple[int, int]] = set()
         for teammate_id, team_id in chosen:
-            context = _best_context(con, target_player_id, teammate_id, team_id)
+            context = _best_context(con, target_player_id, teammate_id, team_id, frozenset(used_contexts))
             if context is None:
                 continue
+            used_contexts.add((context[0], context[1]))
             competition_id, season_id, competition_name, season_name = context
 
             (team_name,) = con.execute(
