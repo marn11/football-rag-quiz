@@ -64,8 +64,11 @@ def _build_base_tables(con: duckdb.DuckDBPyConnection) -> None:
     )
 
 
-def _rich_club_counts(con: duckdb.DuckDBPyConnection, preset: dict) -> dict[int, int]:
-    """Per-player count of "rich" clubs under one difficulty preset's thresholds."""
+def _club_counts(con: duckdb.DuckDBPyConnection, preset: dict) -> tuple[dict[int, int], dict[int, int]]:
+    """Per-player (n_rich_clubs, n_qualifying_clubs) under one difficulty preset's
+    thresholds. "Rich" needs >=min_strong_teammates_per_rich_club strong teammates at a
+    club; "qualifying" just needs >=1 -- i.e. any club at all where a riddle could draw
+    one honest clue. A club can be qualifying without being rich."""
     rows = con.execute(
         f"""
         WITH club_strength AS (
@@ -78,13 +81,17 @@ def _rich_club_counts(con: duckdb.DuckDBPyConnection, preset: dict) -> dict[int,
             JOIN _player_stats ps ON ps.player_id = e.teammate_id
             GROUP BY e.player_id, e.team_id
         )
-        SELECT player_id, COUNT(*) AS n_rich_clubs
+        SELECT player_id,
+               COUNT(*) FILTER (WHERE n_strong_teammates >= {preset["min_strong_teammates_per_rich_club"]})
+                   AS n_rich_clubs,
+               COUNT(*) FILTER (WHERE n_strong_teammates >= 1) AS n_qualifying_clubs
         FROM club_strength
-        WHERE n_strong_teammates >= {preset["min_strong_teammates_per_rich_club"]}
         GROUP BY player_id
         """
     ).fetchall()
-    return dict(rows)
+    rich = {player_id: n_rich for player_id, n_rich, _ in rows}
+    qualifying = {player_id: n_qual for player_id, _, n_qual in rows}
+    return rich, qualifying
 
 
 def rank_candidates(
@@ -101,8 +108,8 @@ def rank_candidates(
     whose thresholds they satisfy, so bands are mutually exclusive.
     """
     _build_base_tables(con)
-    rich_by_preset = {
-        name: _rich_club_counts(con, preset) for name, preset in config.DIFFICULTY_PRESETS.items()
+    counts_by_preset = {
+        name: _club_counts(con, preset) for name, preset in config.DIFFICULTY_PRESETS.items()
     }
 
     competition_filter = ""
@@ -131,8 +138,14 @@ def rank_candidates(
         assigned_n_rich = 0
         for name in config.DIFFICULTY_ORDER:
             preset = config.DIFFICULTY_PRESETS[name]
-            n_rich = rich_by_preset[name].get(player_id, 0)
-            if n_matches >= preset["min_matches"] and n_rich >= preset["min_rich_clubs"]:
+            rich_counts, qualifying_counts = counts_by_preset[name]
+            n_rich = rich_counts.get(player_id, 0)
+            n_qualifying = qualifying_counts.get(player_id, 0)
+            if (
+                n_matches >= preset["min_matches"]
+                and n_rich >= preset["min_rich_clubs"]
+                and n_qualifying >= preset["min_qualifying_clubs"]
+            ):
                 assigned_difficulty = name
                 assigned_n_rich = n_rich
                 break

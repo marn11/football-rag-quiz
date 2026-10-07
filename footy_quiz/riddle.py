@@ -26,6 +26,11 @@ import config
 from footy_quiz import media, selection
 from footy_quiz.db import connect
 
+# How many extra clues _select_clue_pairs will draw from an already-used club to reach
+# max_clues, when club breadth alone falls short. Capped low on purpose -- see
+# _select_clue_pairs' docstring.
+MAX_SAME_CLUB_BACKFILL = 1
+
 
 @dataclass
 class Clue:
@@ -142,9 +147,14 @@ def _select_clue_pairs(
        across unrelated teammates.
     2. One clue per still-unused DISTINCT club -- maximize club breadth, strongest
        (highest shared_matches) teammate at each, strongest-signal club first.
-    3. Fallback only, if there are fewer distinct qualifying clubs than max_clues
-       (rare -- most players here span several clubs): additional, different teammates
-       from clubs already used, round-robin.
+    3. Capped fallback: at most MAX_SAME_CLUB_BACKFILL extra clue(s) reusing an
+       already-seen club, if clubs alone didn't reach max_clues. Capped, not filled all
+       the way to max_clues, on purpose -- a player whose only real signal is one club
+       should read as a short, honest riddle (e.g. 1-2 clues), not get padded out to 3
+       near-duplicate "same club, different season" clues that say nothing new
+       (selection.py's min_qualifying_clubs is the real fix for this -- it keeps
+       single-club careers out of every tier except "extreme" in the first place; this
+       cap is just a backstop for whatever still gets through).
     """
     clubs_by_teammate: dict[int, set[int]] = {}
     for teammate_id, team_id, _ in qualifying:
@@ -194,14 +204,15 @@ def _select_clue_pairs(
             by_club[team_id].sort(key=lambda t: -t[1])
 
         club_order = sorted(by_club, key=lambda tid: -by_club[tid][0][1])
-        while len(chosen) < max_clues and any(by_club[tid] for tid in club_order):
-            for team_id in club_order:
-                if len(chosen) >= max_clues:
-                    break
-                if by_club[team_id]:
-                    teammate_id, _ = by_club[team_id].pop(0)
-                    chosen.append((teammate_id, team_id))
-                    used_pairs.add((teammate_id, team_id))
+        backfilled = 0
+        for team_id in club_order:
+            if backfilled >= MAX_SAME_CLUB_BACKFILL or len(chosen) >= max_clues:
+                break
+            if by_club[team_id]:
+                teammate_id, _ = by_club[team_id][0]
+                chosen.append((teammate_id, team_id))
+                used_pairs.add((teammate_id, team_id))
+                backfilled += 1
 
     return chosen
 

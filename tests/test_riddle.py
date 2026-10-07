@@ -34,12 +34,17 @@ def test_select_clue_pairs_maximizes_club_breadth():
     assert len({team_id for _, team_id in chosen}) == 3
 
 
-def test_select_clue_pairs_falls_back_to_same_club_when_few_clubs_exist():
+def test_select_clue_pairs_caps_same_club_backfill_instead_of_padding():
+    # Regression: a player whose only real signal is one club (e.g. "spent 3+ years at
+    # Eibar") must NOT get padded out to max_clues near-duplicate "same club, different
+    # season" clues -- that's a thin, repetitive, not-fun riddle. Capped to at most
+    # MAX_SAME_CLUB_BACKFILL extra clue beyond the first, even with plenty of teammates
+    # available to pad further.
     qualifying = [(100 + i, 500, 10 - i) for i in range(5)]  # 1 club, 5 teammates
     chosen = _select_clue_pairs(qualifying, max_clues=3)
-    assert len(chosen) == 3
+    assert len(chosen) == 2
     assert all(team_id == 500 for _, team_id in chosen)
-    assert len({teammate_id for teammate_id, _ in chosen}) == 3  # distinct teammates
+    assert len({teammate_id for teammate_id, _ in chosen}) == 2  # distinct teammates
 
 
 def test_select_clue_pairs_prioritizes_recurring_costar_then_fills_breadth():
