@@ -86,7 +86,6 @@ def phrase_hint(
         response = _get_client().messages.create(
             model=MODEL,
             max_tokens=MAX_TOKENS,
-            temperature=0.7,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
         )
