@@ -37,6 +37,23 @@ def _get_model():
     return _model
 
 
+def _float_array_literal(values) -> str:
+    """Formats floats as a DuckDB array SQL literal ("[0.1,0.2,...]") for inlining
+    directly into a query, instead of binding as a parameter.
+
+    Only ever used for embeddings we generate ourselves -- never external/user input,
+    so there's no injection risk (every element is forced through float() first, which
+    raises on anything that isn't numeric). This isn't a style choice: confirmed by
+    direct measurement that DuckDB's Python parameter binding for array-typed values
+    (FLOAT[N], DOUBLE[N], and even variable-length FLOAT[]) is catastrophically slower
+    than inlining the same data as a literal -- ~36ms per row either way (single insert,
+    executemany, or one big multi-row INSERT all showed the same per-array cost) vs
+    ~0.5ms per row inlined. For a player with ~400-500 chunks, that's the difference
+    between a ~15s insert loop and a sub-second one -- this was the dominant cost in
+    both "New Game" latency and the hint-corpus background pre-warm."""
+    return "[" + ",".join(repr(float(v)) for v in values) + "]"
+
+
 def ensure_player_chunks(con: duckdb.DuckDBPyConnection, player_id: int) -> int:
     """Fetches + chunks + embeds this player's Wikipedia prose if not already cached.
     Returns the chunk count (0 if no Wikipedia page could be resolved or fetched)."""
@@ -74,13 +91,13 @@ def ensure_player_chunks(con: duckdb.DuckDBPyConnection, player_id: int) -> int:
 
     embeddings = _get_model().encode(chunks, normalize_embeddings=True)
     for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
+        vec_literal = _float_array_literal(emb)
         con.execute(
-            "INSERT INTO wiki_chunks VALUES (?, ?, ?, ?, ?, ?)",
+            f"INSERT INTO wiki_chunks VALUES (?, ?, ?, {vec_literal}::FLOAT[{EMBEDDING_DIM}], ?, ?)",
             [
                 player_id,
                 i,
                 chunk,
-                emb.tolist(),
                 contains_name(chunk, player_name, player_nickname, aka),
                 specificity(chunk),
             ],
@@ -100,7 +117,8 @@ def retrieve(
     query (smaller = closer). contains_name=TRUE chunks are always excluded -- that's a
     hard spoiler-safety rule, not a difficulty knob. max_specificity/exclude_chunk_indices
     are session-level difficulty-progression/no-repeat controls (checkpoint 11)."""
-    query_embedding = _get_model().encode([query], normalize_embeddings=True)[0].tolist()
+    query_embedding = _get_model().encode([query], normalize_embeddings=True)[0]
+    query_vec_literal = _float_array_literal(query_embedding)
 
     where_clauses = ["player_id = ?", "NOT contains_name"]
     where_params: list = [player_id]
@@ -113,10 +131,11 @@ def retrieve(
         where_params.extend(exclude_chunk_indices)
 
     sql = f"""
-        SELECT chunk_index, text, array_cosine_distance(embedding, ?::FLOAT[{EMBEDDING_DIM}]) AS distance
+        SELECT chunk_index, text,
+               array_cosine_distance(embedding, {query_vec_literal}::FLOAT[{EMBEDDING_DIM}]) AS distance
         FROM wiki_chunks
         WHERE {" AND ".join(where_clauses)}
         ORDER BY distance ASC
         LIMIT ?
     """
-    return con.execute(sql, [query_embedding, *where_params, k]).fetchall()
+    return con.execute(sql, [*where_params, k]).fetchall()
