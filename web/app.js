@@ -1,5 +1,8 @@
+import { animate } from "https://cdn.jsdelivr.net/npm/motion@11.13.5/+esm";
+
 const AUTOCOMPLETE_DEBOUNCE_MS = 200;
 const AUTOCOMPLETE_MIN_LEN = 2; // mirrors the backend's MIN_AUTOCOMPLETE_PREFIX_LEN
+const CONFETTI_COLORS = ["#F4B93C", "#42E08A", "#F6FAF5", "#E5483C", "#58C4DC"];
 
 let gameId = null;
 let clues = [];
@@ -111,12 +114,70 @@ function setFeedback(headline, detail, kind) {
     d.textContent = detail;
     el.feedback.appendChild(d);
   }
+
+  animate(el.feedback, { opacity: [0, 1], scale: [0.85, 1] }, { duration: 0.35, ease: "easeOut" });
 }
 
 function addHint(text) {
   const li = document.createElement("li");
   li.textContent = text;
   el.hintsList.appendChild(li);
+  animate(li, { opacity: [0, 1], x: [-12, 0] }, { duration: 0.3, ease: "easeOut" });
+}
+
+function shakeElement(element) {
+  animate(element, { x: [0, -8, 8, -6, 6, 0] }, { duration: 0.4, ease: "easeInOut" });
+}
+
+function playVictorySound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = [523.25, 659.25, 783.99, 1046.5]; // C5 E5 G5 C6 -- a bright ascending chime
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "triangle";
+      osc.frequency.value = freq;
+      const startTime = ctx.currentTime + i * 0.1;
+      gain.gain.setValueAtTime(0.0001, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.3, startTime + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.35);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(startTime);
+      osc.stop(startTime + 0.4);
+    });
+  } catch (e) {
+    // Audio can fail (autoplay policy, unsupported browser, ...) -- never block the win over a sound.
+    console.warn("Victory sound failed:", e);
+  }
+}
+
+function celebrateConfetti(count = 60) {
+  const layer = document.getElementById("confetti-layer");
+  for (let i = 0; i < count; i++) {
+    const piece = document.createElement("div");
+    piece.className = "confetti-piece";
+    piece.style.left = `${Math.random() * 100}%`;
+    piece.style.background = CONFETTI_COLORS[i % CONFETTI_COLORS.length];
+    layer.appendChild(piece);
+
+    const fallDistance = window.innerHeight + 40;
+    const duration = 1.8 + Math.random() * 1.4;
+    const delay = Math.random() * 0.4;
+
+    animate(
+      piece,
+      {
+        y: [-20, fallDistance],
+        x: [0, (Math.random() - 0.5) * 160],
+        rotate: [0, 360 + Math.random() * 720],
+        opacity: [1, 1, 0],
+      },
+      { duration, delay, ease: "easeIn" }
+    );
+
+    setTimeout(() => piece.remove(), (duration + delay) * 1000 + 100);
+  }
 }
 
 function lockGame() {
@@ -171,9 +232,12 @@ async function submitGuess(guess) {
   if (data.correct) {
     const detail = data.message.replace(/^Correct!\s*/, "");
     setFeedback("GOAL!", detail, "correct");
+    playVictorySound();
+    celebrateConfetti();
     lockGame();
   } else {
     setFeedback("OFFSIDE!", data.message, "incorrect");
+    shakeElement(el.guessInput);
   }
 }
 

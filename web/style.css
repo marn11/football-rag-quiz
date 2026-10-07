@@ -441,3 +441,20 @@ button:disabled {
   header { flex-direction: column; align-items: flex-start; }
   .clue-card { width: 100%; max-width: 240px; }
 }
+
+/* ---------- Confetti (victory celebration, driven by Motion in app.js) ---------- */
+#confetti-layer {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 999;
+}
+
+.confetti-piece {
+  position: absolute;
+  top: 0;
+  width: 10px;
+  height: 14px;
+  border-radius: 2px;
+}
