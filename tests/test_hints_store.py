@@ -50,7 +50,7 @@ def con(monkeypatch):
     )
     conn.execute(
         f"CREATE TABLE wiki_chunks (player_id INTEGER, chunk_index INTEGER, text VARCHAR, "
-        f"embedding FLOAT[{store.EMBEDDING_DIM}])"
+        f"embedding FLOAT[{store.EMBEDDING_DIM}], contains_name BOOLEAN, specificity SMALLINT)"
     )
     conn.execute("INSERT INTO players VALUES (1, 'Test Player', 'Tester')")
     yield conn
@@ -102,18 +102,62 @@ def test_ensure_player_chunks_returns_zero_when_unresolved(con, monkeypatch):
 
 def test_retrieve_returns_most_relevant_chunk_first(con):
     con.execute(
-        "INSERT INTO wiki_chunks VALUES (1, 0, 'A story about apple orchards', ?)",
+        "INSERT INTO wiki_chunks VALUES (1, 0, 'A story about apple orchards', ?, false, 1)",
         [[1.0, 0.0, 0.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
     )
     con.execute(
-        "INSERT INTO wiki_chunks VALUES (1, 1, 'A story about banana farms', ?)",
+        "INSERT INTO wiki_chunks VALUES (1, 1, 'A story about banana farms', ?, false, 1)",
         [[0.0, 1.0, 0.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
     )
     con.execute(
-        "INSERT INTO wiki_chunks VALUES (1, 2, 'A story about carrot fields', ?)",
+        "INSERT INTO wiki_chunks VALUES (1, 2, 'A story about carrot fields', ?, false, 1)",
         [[0.0, 0.0, 1.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
     )
 
     results = store.retrieve(con, 1, "tell me about banana", k=2)
-    assert results[0][0] == "A story about banana farms"
-    assert results[0][1] < results[1][1]  # closest result has the smallest distance
+    chunk_index, text, distance = results[0]
+    assert text == "A story about banana farms"
+    assert distance < results[1][2]  # closest result has the smallest distance
+
+
+def test_retrieve_excludes_name_containing_chunks(con):
+    con.execute(
+        "INSERT INTO wiki_chunks VALUES (1, 0, 'A story about banana farms', ?, true, 1)",
+        [[0.0, 1.0, 0.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
+    )
+    con.execute(
+        "INSERT INTO wiki_chunks VALUES (1, 1, 'A different fact entirely', ?, false, 1)",
+        [[0.0, 0.0, 0.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
+    )
+
+    results = store.retrieve(con, 1, "tell me about banana", k=5)
+    assert all(text != "A story about banana farms" for _, text, _ in results)
+
+
+def test_retrieve_respects_specificity_ceiling(con):
+    con.execute(
+        "INSERT INTO wiki_chunks VALUES (1, 0, 'A vague fact', ?, false, 1)",
+        [[0.0, 1.0, 0.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
+    )
+    con.execute(
+        "INSERT INTO wiki_chunks VALUES (1, 1, 'A very specific fact', ?, false, 3)",
+        [[0.0, 1.0, 0.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
+    )
+
+    results = store.retrieve(con, 1, "tell me about banana", k=5, max_specificity=1)
+    assert len(results) == 1
+    assert results[0][1] == "A vague fact"
+
+
+def test_retrieve_respects_exclude_chunk_indices(con):
+    con.execute(
+        "INSERT INTO wiki_chunks VALUES (1, 0, 'First banana fact', ?, false, 1)",
+        [[0.0, 1.0, 0.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
+    )
+    con.execute(
+        "INSERT INTO wiki_chunks VALUES (1, 1, 'Second banana fact', ?, false, 1)",
+        [[0.0, 1.0, 0.0] + [0.0] * (store.EMBEDDING_DIM - 3)],
+    )
+
+    results = store.retrieve(con, 1, "tell me about banana", k=5, exclude_chunk_indices={0})
+    assert [r[0] for r in results] == [1]

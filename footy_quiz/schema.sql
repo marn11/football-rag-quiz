@@ -110,10 +110,14 @@ CREATE TABLE wiki_pages (
 
 -- Sentence-level (occasionally 2-sentence) chunks of wiki_pages.raw_extract, embedded
 -- with all-MiniLM-L6-v2 (384-dim) for the live RAG hint retrieval pipeline.
+-- contains_name = TRUE chunks are never eligible as hints (they'd name the player
+-- outright); specificity (1-3) softly gates how revealing an eligible hint can be.
 CREATE TABLE wiki_chunks (
     player_id INTEGER NOT NULL REFERENCES players(player_id),
     chunk_index INTEGER NOT NULL,
     text VARCHAR NOT NULL,
     embedding FLOAT[384] NOT NULL,
+    contains_name BOOLEAN NOT NULL,
+    specificity SMALLINT NOT NULL,
     PRIMARY KEY (player_id, chunk_index)
 );

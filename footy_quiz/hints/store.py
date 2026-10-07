@@ -20,6 +20,7 @@ import duckdb
 
 from footy_quiz import media
 from footy_quiz.hints.chunking import chunk_text
+from footy_quiz.hints.retrieval import contains_name, extract_aka_nickname, specificity
 
 EMBEDDING_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 EMBEDDING_DIM = 384  # tied to EMBEDDING_MODEL_NAME; changing the model needs a re-embed
@@ -47,12 +48,14 @@ def ensure_player_chunks(con: duckdb.DuckDBPyConnection, player_id: int) -> int:
 
     # Ensures Checkpoint 5's title resolution has run (and is cached) for this player.
     media.get_or_fetch_player_photo(con, player_id)
-    title_row = con.execute(
-        "SELECT wiki_title FROM player_wiki WHERE player_id = ?", [player_id]
+    row = con.execute(
+        "SELECT p.player_name, p.player_nickname, pw.wiki_title "
+        "FROM players p JOIN player_wiki pw USING (player_id) WHERE p.player_id = ?",
+        [player_id],
     ).fetchone()
-    if not title_row or not title_row[0]:
+    if not row or not row[2]:
         return 0
-    title = title_row[0]
+    player_name, player_nickname, title = row
 
     extract = media.fetch_full_extract(title)
     if not extract:
@@ -67,27 +70,53 @@ def ensure_player_chunks(con: duckdb.DuckDBPyConnection, player_id: int) -> int:
     if not chunks:
         return 0
 
+    aka = extract_aka_nickname(extract[:300])
+
     embeddings = _get_model().encode(chunks, normalize_embeddings=True)
     for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
         con.execute(
-            "INSERT INTO wiki_chunks VALUES (?, ?, ?, ?)",
-            [player_id, i, chunk, emb.tolist()],
+            "INSERT INTO wiki_chunks VALUES (?, ?, ?, ?, ?, ?)",
+            [
+                player_id,
+                i,
+                chunk,
+                emb.tolist(),
+                contains_name(chunk, player_name, player_nickname, aka),
+                specificity(chunk),
+            ],
         )
     return len(chunks)
 
 
 def retrieve(
-    con: duckdb.DuckDBPyConnection, player_id: int, query: str, k: int = 3
-) -> list[tuple[str, float]]:
-    """Top-k chunks for this player by cosine distance to the query (smaller = closer)."""
+    con: duckdb.DuckDBPyConnection,
+    player_id: int,
+    query: str,
+    k: int = 3,
+    max_specificity: Optional[int] = None,
+    exclude_chunk_indices: Optional[set[int]] = None,
+) -> list[tuple[int, str, float]]:
+    """Top-k (chunk_index, text, distance) for this player by cosine distance to the
+    query (smaller = closer). contains_name=TRUE chunks are always excluded -- that's a
+    hard spoiler-safety rule, not a difficulty knob. max_specificity/exclude_chunk_indices
+    are session-level difficulty-progression/no-repeat controls (checkpoint 11)."""
     query_embedding = _get_model().encode([query], normalize_embeddings=True)[0].tolist()
-    return con.execute(
-        f"""
-        SELECT text, array_cosine_distance(embedding, ?::FLOAT[{EMBEDDING_DIM}]) AS distance
+
+    where_clauses = ["player_id = ?", "NOT contains_name"]
+    where_params: list = [player_id]
+    if max_specificity is not None:
+        where_clauses.append("specificity <= ?")
+        where_params.append(max_specificity)
+    if exclude_chunk_indices:
+        placeholders = ", ".join("?" for _ in exclude_chunk_indices)
+        where_clauses.append(f"chunk_index NOT IN ({placeholders})")
+        where_params.extend(exclude_chunk_indices)
+
+    sql = f"""
+        SELECT chunk_index, text, array_cosine_distance(embedding, ?::FLOAT[{EMBEDDING_DIM}]) AS distance
         FROM wiki_chunks
-        WHERE player_id = ?
+        WHERE {" AND ".join(where_clauses)}
         ORDER BY distance ASC
         LIMIT ?
-        """,
-        [query_embedding, player_id, k],
-    ).fetchall()
+    """
+    return con.execute(sql, [query_embedding, *where_params, k]).fetchall()

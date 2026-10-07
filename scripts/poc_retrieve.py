@@ -33,7 +33,7 @@ def main() -> None:
 
         for query in TEST_QUERIES:
             print(f"Query: {query!r}")
-            for text, distance in store.retrieve(con, MESSI, query, k=3):
+            for _chunk_index, text, distance in store.retrieve(con, MESSI, query, k=3):
                 print(f"  [{distance:.3f}] {text}")
             print()
     finally:
