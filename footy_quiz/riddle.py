@@ -217,12 +217,19 @@ def _select_clue_pairs(
     return chosen
 
 
-def get_riddle(target_player_id: int, max_clues: int = 3) -> Riddle:
+def get_riddle(
+    target_player_id: int, max_clues: int = 3, difficulty: Optional[str] = None
+) -> Riddle:
+    """`difficulty`, if already known (e.g. the API layer just picked this player from
+    an already difficulty-filtered candidate list), skips re-deriving it via
+    selection.get_difficulty() -- that re-runs rank_candidates() over every player in
+    the dataset, which is wasteful to pay for twice in the same request."""
     con = connect(read_only=False)  # media lookups may need to write a cache entry
     try:
-        difficulty = selection.get_difficulty(con, target_player_id)
         if difficulty is None:
-            raise ValueError(f"player {target_player_id} has no qualifying teammate connections")
+            difficulty = selection.get_difficulty(con, target_player_id)
+            if difficulty is None:
+                raise ValueError(f"player {target_player_id} has no qualifying teammate connections")
         preset = config.DIFFICULTY_PRESETS[difficulty]
 
         qualifying = _qualifying_teammates(con, target_player_id, preset)

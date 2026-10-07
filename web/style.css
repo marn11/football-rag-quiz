@@ -284,19 +284,26 @@ button:disabled {
   justify-content: center;
 }
 
+/* Portrait frame, not a tight circle -- Wikipedia infobox photos range from headshots
+   to full-body action shots with the face anywhere from top-center to a side, and a
+   small circular crop was cutting heads off. A taller window is more forgiving
+   regardless of exactly where the face sits, biased toward the top since that's where
+   it lands most often -- and happens to read more like an actual Panini sticker photo
+   than a tiny avatar circle. */
 .clue-card img.teammate-photo {
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
+  width: 84px;
+  height: 104px;
+  border-radius: 10px;
   object-fit: cover;
+  object-position: 50% 15%;
   border: 2px solid var(--ink);
   background: var(--panel-raised);
 }
 
 .clue-card .photo-placeholder {
-  width: 76px;
-  height: 76px;
-  border-radius: 50%;
+  width: 84px;
+  height: 104px;
+  border-radius: 10px;
   border: 2px solid var(--ink);
   background: var(--panel-raised);
   display: flex;

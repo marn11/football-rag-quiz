@@ -9,11 +9,12 @@ module's docstring for the persistence caveat.
 
 from __future__ import annotations
 
+import logging
 import random
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 import footy_quiz
@@ -25,6 +26,7 @@ from footy_quiz.hints import llm_hint, store
 from footy_quiz.hints.session import HintSessionState, get_next_hint
 
 WEB_DIR = Path(__file__).resolve().parent.parent.parent / "web"
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -60,14 +62,33 @@ def _get_game_or_404(game_id: str) -> GameState:
     return game
 
 
+def _prewarm_hint_corpus(player_id: int) -> None:
+    """Runs after the response is sent (see BackgroundTasks below) -- fetching +
+    chunking + embedding a player's Wikipedia page is the single slowest part of
+    starting a game, and nothing about seeing the riddle actually needs it done yet;
+    it only needs to be ready by the time "Get Hint" is clicked, a few seconds later
+    at minimum. Needs its own connection: the request's cursor is already closed by
+    the time this runs."""
+    con = connect(read_only=False)
+    try:
+        store.ensure_player_chunks(con, player_id)
+    except Exception:
+        logger.exception("Failed to pre-warm hint corpus for player %s", player_id)
+    finally:
+        con.close()
+
+
 @app.post("/api/games", response_model=schemas.StartGameResponse)
-def start_game(difficulty: str = "normal") -> schemas.StartGameResponse:
+def start_game(background_tasks: BackgroundTasks, difficulty: str = "normal") -> schemas.StartGameResponse:
     candidates = footy_quiz.list_candidate_target_players(difficulty=difficulty, limit=200)
     if not candidates:
         raise HTTPException(status_code=400, detail=f"no candidates for difficulty={difficulty!r}")
     target_player_id = random.choice(candidates)
 
-    generated_riddle = footy_quiz.get_riddle(target_player_id)
+    # difficulty is already known (the candidate came from a difficulty-filtered list),
+    # so get_riddle() doesn't need to re-derive it -- that re-scores every player in the
+    # dataset, wasteful to pay for twice in the same request.
+    generated_riddle = footy_quiz.get_riddle(target_player_id, difficulty=difficulty)
 
     game_id = new_game_id()
     GAMES[game_id] = GameState(
@@ -77,12 +98,7 @@ def start_game(difficulty: str = "normal") -> schemas.StartGameResponse:
         hint_state=HintSessionState(player_id=target_player_id),
     )
 
-    # Pre-warm the hint corpus now so the first "Get Hint" click isn't the slow one.
-    con = connect(read_only=False)
-    try:
-        store.ensure_player_chunks(con, target_player_id)
-    finally:
-        con.close()
+    background_tasks.add_task(_prewarm_hint_corpus, target_player_id)
 
     return schemas.StartGameResponse(
         game_id=game_id,
