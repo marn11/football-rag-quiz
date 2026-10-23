@@ -11,7 +11,7 @@ def test_extract_aka_nickname_none_when_absent():
 
 
 def test_contains_name_catches_prose_only_nickname_via_aka():
-    # "Leo" never appears in StatsBomb's player_name/player_nickname fields -- only in
+    # "Leo" never appears in the stored player_name/player_nickname fields -- only in
     # the Wikipedia prose itself -- so it must be passed in explicitly as `aka`.
     assert contains_name("'Leo' developed a passion for the sport.", "Lionel Messi", "Lionel Messi", aka="Leo")
     assert not contains_name("'Leo' developed a passion for the sport.", "Lionel Messi", "Lionel Messi")

@@ -6,8 +6,11 @@ const CONFETTI_COLORS = ["#F4B93C", "#42E08A", "#F6FAF5", "#E5483C", "#58C4DC"];
 
 let gameId = null;
 let clues = [];
+let yearsRevealed = false; // seasons stay hidden until "Sort by year" is clicked
 let solved = false;
 let autocompleteTimer = null;
+let autocompleteSeq = 0; // bumped per request and on hide, so a late response for older text is dropped
+let activeSuggestion = -1;
 
 const el = {
   newGameBtn: document.getElementById("new-game-btn"),
@@ -22,6 +25,11 @@ const el = {
   autocompleteList: document.getElementById("autocomplete-list"),
   revealBtn: document.getElementById("reveal-btn"),
   feedback: document.getElementById("feedback"),
+  revealModal: document.getElementById("reveal-modal"),
+  revealPhoto: document.getElementById("reveal-photo"),
+  revealPhotoPlaceholder: document.getElementById("reveal-photo-placeholder"),
+  revealName: document.getElementById("reveal-name"),
+  revealCloseBtn: document.getElementById("reveal-close-btn"),
 };
 
 async function api(path, options = {}) {
@@ -71,7 +79,9 @@ function renderClueCard(clue) {
 
   const clubSeason = document.createElement("div");
   clubSeason.className = "club-season";
-  clubSeason.textContent = `${clue.team_name} — ${clue.season_name} ${clue.competition_name}`;
+  clubSeason.textContent = yearsRevealed
+    ? `${clue.team_name} — ${clue.season_name} ${clue.competition_name}`
+    : `${clue.team_name} — ${clue.competition_name}`;
   card.appendChild(clubSeason);
 
   return card;
@@ -92,8 +102,11 @@ function renderClues(list) {
 }
 
 function reorderChronologically() {
-  // Client-side only -- no server call. A free, instant hint: the clues already
-  // carry a real date, this just un-scrambles what's already on screen.
+  // Client-side only -- no server call. A free, instant hint: the clues already carry a
+  // real date, so this reveals the seasons (hidden by default, otherwise sorting would
+  // add nothing) and un-scrambles what's already on screen.
+  if (!gameId || clues.length === 0) return;
+  yearsRevealed = true;
   const sorted = [...clues].sort((a, b) => a.season_start_year - b.season_start_year);
   renderClues(sorted);
 }
@@ -152,6 +165,55 @@ function playVictorySound() {
   }
 }
 
+function playLossSound() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const notes = [392.0, 349.23, 261.63]; // G4 F4 C4 -- a descending "sad trombone" fall
+    notes.forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = "sawtooth";
+      osc.frequency.value = freq;
+      const startTime = ctx.currentTime + i * 0.22;
+      gain.gain.setValueAtTime(0.0001, startTime);
+      gain.gain.exponentialRampToValueAtTime(0.22, startTime + 0.03);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startTime + 0.5);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(startTime);
+      osc.stop(startTime + 0.55);
+    });
+  } catch (e) {
+    // Audio can fail (autoplay policy, unsupported browser, ...) -- never block the reveal over a sound.
+    console.warn("Loss sound failed:", e);
+  }
+}
+
+function showRevealModal(playerName, photoUrl) {
+  el.revealName.textContent = playerName;
+  if (photoUrl) {
+    el.revealPhoto.src = photoUrl;
+    el.revealPhoto.hidden = false;
+    el.revealPhoto.onerror = () => {
+      el.revealPhoto.hidden = true;
+      el.revealPhotoPlaceholder.hidden = false;
+    };
+    el.revealPhotoPlaceholder.hidden = true;
+  } else {
+    el.revealPhoto.hidden = true;
+    el.revealPhotoPlaceholder.hidden = false;
+  }
+  el.revealModal.hidden = false;
+  animate(
+    el.revealModal.querySelector(".reveal-card"),
+    { opacity: [0, 1], scale: [0.8, 1] },
+    { duration: 0.35, ease: "easeOut" }
+  );
+}
+
+function hideRevealModal() {
+  el.revealModal.hidden = true;
+}
+
 function celebrateConfetti(count = 60) {
   const layer = document.getElementById("confetti-layer");
   for (let i = 0; i < count; i++) {
@@ -195,7 +257,9 @@ async function startGame() {
   el.guessInput.value = "";
   clearTimeout(autocompleteTimer);
   hideAutocomplete();
+  hideRevealModal();
   solved = false;
+  yearsRevealed = false;
   el.hintBtn.disabled = false;
   el.revealBtn.disabled = false;
   el.guessInput.disabled = false;
@@ -236,8 +300,12 @@ async function submitGuess(guess) {
     celebrateConfetti();
     lockGame();
   } else {
-    setFeedback("OFFSIDE!", data.message, "incorrect");
+    setFeedback("OFFSIDE!", `"${guess.trim()}" isn't it. ${data.message}`, "incorrect");
     shakeElement(el.guessInput);
+    el.guessInput.value = "";
+    clearTimeout(autocompleteTimer);
+    hideAutocomplete();
+    el.guessInput.focus();
   }
 }
 
@@ -245,12 +313,48 @@ async function reveal() {
   if (!gameId || solved) return;
   const data = await api(`/api/games/${gameId}/reveal`, { method: "POST" });
   setFeedback("FULL TIME", `It was ${data.player_name}.`, "reveal");
+  playLossSound();
+  showRevealModal(data.player_name, data.photo_url);
   lockGame();
 }
 
 function hideAutocomplete() {
+  autocompleteSeq++;
+  activeSuggestion = -1;
   el.autocompleteList.hidden = true;
   el.autocompleteList.innerHTML = "";
+}
+
+function suggestionAvatar(photoUrl, name) {
+  const placeholder = () => {
+    const div = document.createElement("div");
+    div.className = "suggestion-avatar placeholder";
+    div.textContent = name.charAt(0).toUpperCase();
+    return div;
+  };
+  if (!photoUrl) return placeholder();
+  const img = document.createElement("img");
+  img.className = "suggestion-avatar";
+  img.src = photoUrl;
+  img.alt = "";
+  img.loading = "lazy";
+  img.onerror = () => img.replaceWith(placeholder());
+  return img;
+}
+
+function chooseSuggestion(name) {
+  el.guessInput.value = name;
+  clearTimeout(autocompleteTimer);
+  hideAutocomplete();
+  el.guessInput.focus();
+}
+
+function highlightSuggestion(index) {
+  const items = el.autocompleteList.children;
+  if (items.length === 0) return;
+  activeSuggestion = (index + items.length) % items.length;
+  [...items].forEach((li, i) => li.classList.toggle("active", i === activeSuggestion));
+  items[activeSuggestion].scrollIntoView({ block: "nearest" });
 }
 
 async function fetchAutocomplete(prefix) {
@@ -258,21 +362,34 @@ async function fetchAutocomplete(prefix) {
     hideAutocomplete();
     return;
   }
+  const seq = ++autocompleteSeq;
   const results = await api(`/api/players/autocomplete?prefix=${encodeURIComponent(prefix)}`);
+  // A response for an older prefix (or one that arrives after the list was dismissed /
+  // a guess submitted) must never overwrite what the user is looking at now.
+  if (seq !== autocompleteSeq || el.guessInput.value.trim() !== prefix) return;
   if (results.length === 0) {
     hideAutocomplete();
     return;
   }
   el.autocompleteList.innerHTML = "";
+  activeSuggestion = -1;
   for (const r of results) {
+    const name = r.player_nickname || r.player_name;
     const li = document.createElement("li");
-    li.textContent = r.player_nickname || r.player_name;
-    li.addEventListener("click", () => {
-      el.guessInput.value = r.player_nickname || r.player_name;
-      clearTimeout(autocompleteTimer); // a stale pending fetch from a prior keystroke
-      hideAutocomplete();              // could otherwise re-show the dropdown after this
-      el.guessInput.focus();
-    });
+    li.appendChild(suggestionAvatar(r.photo_url, name));
+    const label = document.createElement("span");
+    label.className = "suggestion-name";
+    label.textContent = name;
+    li.appendChild(label);
+    if (r.main_club) {
+      const club = document.createElement("span");
+      club.className = "suggestion-club";
+      club.textContent = r.main_club;
+      li.appendChild(club);
+    }
+    li.dataset.name = name;
+    li.addEventListener("mousedown", (event) => event.preventDefault()); // keep input focus
+    li.addEventListener("click", () => chooseSuggestion(name));
     el.autocompleteList.appendChild(li);
   }
   el.autocompleteList.hidden = false;
@@ -282,6 +399,10 @@ el.newGameBtn.addEventListener("click", () => startGame().catch((e) => setFeedba
 el.hintBtn.addEventListener("click", () => getHint().catch((e) => setFeedback("Error", e.message, "incorrect")));
 el.reorderBtn.addEventListener("click", reorderChronologically);
 el.revealBtn.addEventListener("click", () => reveal().catch((e) => setFeedback("Error", e.message, "incorrect")));
+el.revealCloseBtn.addEventListener("click", hideRevealModal);
+el.revealModal.addEventListener("click", (event) => {
+  if (event.target === el.revealModal) hideRevealModal();
+});
 
 el.guessForm.addEventListener("submit", (event) => {
   event.preventDefault();
@@ -296,6 +417,23 @@ el.guessInput.addEventListener("input", () => {
   autocompleteTimer = setTimeout(() => {
     fetchAutocomplete(value).catch(() => hideAutocomplete());
   }, AUTOCOMPLETE_DEBOUNCE_MS);
+});
+
+el.guessInput.addEventListener("keydown", (event) => {
+  if (el.autocompleteList.hidden) return;
+  if (event.key === "ArrowDown") {
+    event.preventDefault();
+    highlightSuggestion(activeSuggestion + 1);
+  } else if (event.key === "ArrowUp") {
+    event.preventDefault();
+    highlightSuggestion(activeSuggestion - 1);
+  } else if (event.key === "Enter" && activeSuggestion >= 0) {
+    // Enter on a highlighted suggestion picks it; Enter again submits the guess.
+    event.preventDefault();
+    chooseSuggestion(el.autocompleteList.children[activeSuggestion].dataset.name);
+  } else if (event.key === "Escape") {
+    hideAutocomplete();
+  }
 });
 
 document.addEventListener("click", (event) => {

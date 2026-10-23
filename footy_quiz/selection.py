@@ -97,7 +97,7 @@ def _club_counts(con: duckdb.DuckDBPyConnection, preset: dict) -> tuple[dict[int
 def rank_candidates(
     con: duckdb.DuckDBPyConnection,
     difficulty: str = "any",
-    competition_ids: Optional[list[int]] = None,
+    competition_ids: Optional[list[str]] = None,
     limit: int = 500,
 ) -> list[PlayerCandidate]:
     """Full ranked candidate list with debug info (name/difficulty/score) -- the basis for
@@ -111,17 +111,26 @@ def rank_candidates(
     counts_by_preset = {
         name: _club_counts(con, preset) for name, preset in config.DIFFICULTY_PRESETS.items()
     }
+    # 0 for both "never looked up" (NULL) and "looked up, genuinely obscure" -- a player
+    # missing from this entirely (not yet covered by scripts/build_popularity.py) is
+    # treated the same as a confirmed-obscure one: conservatively excluded from the
+    # popularity-gated bands rather than risking a false "easy"/"normal".
+    popularity = dict(
+        con.execute("SELECT player_id, COALESCE(popularity_views, 0) FROM player_wiki").fetchall()
+    )
 
     competition_filter = ""
+    filter_params: list = []
     if competition_ids:
-        ids_csv = ",".join(str(i) for i in competition_ids)
+        placeholders = ",".join("?" for _ in competition_ids)
         competition_filter = f"""
             AND EXISTS (
                 SELECT 1 FROM appearances a2
                 JOIN matches m2 ON m2.match_id = a2.match_id
-                WHERE a2.player_id = p.player_id AND m2.competition_id IN ({ids_csv})
+                WHERE a2.player_id = p.player_id AND m2.competition_id IN ({placeholders})
             )
         """
+        filter_params = list(competition_ids)
 
     rows = con.execute(
         f"""
@@ -129,7 +138,8 @@ def rank_candidates(
         FROM players p
         JOIN _player_stats ps ON ps.player_id = p.player_id
         WHERE 1=1 {competition_filter}
-        """
+        """,
+        filter_params,
     ).fetchall()
 
     candidates: list[PlayerCandidate] = []
@@ -145,6 +155,7 @@ def rank_candidates(
                 n_matches >= preset["min_matches"]
                 and n_rich >= preset["min_rich_clubs"]
                 and n_qualifying >= preset["min_qualifying_clubs"]
+                and popularity.get(player_id, 0) >= preset["min_popularity_views"]
             ):
                 assigned_difficulty = name
                 assigned_n_rich = n_rich
@@ -168,7 +179,7 @@ def rank_candidates(
 
 def list_candidate_target_players(
     difficulty: str = "normal",
-    competition_ids: Optional[list[int]] = None,
+    competition_ids: Optional[list[str]] = None,
     limit: int = 500,
 ) -> list[int]:
     """Public contract function: ranked target-player ids for one difficulty band,

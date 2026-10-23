@@ -15,7 +15,7 @@ import duckdb
 from footy_quiz.hints import store
 from footy_quiz.ingest import DEFAULT_DB_PATH
 
-MESSI = 5503
+MESSI = 28003
 
 TEST_QUERIES = [
     "an interesting fact about this player's youth or early career",

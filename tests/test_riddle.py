@@ -8,8 +8,8 @@ from footy_quiz import db, riddle
 from footy_quiz.ingest import DEFAULT_DB_PATH
 from footy_quiz.riddle import _select_clue_pairs
 
-DI_MARIA = 2995
-RAMOS = 5201
+DI_MARIA = 45320
+RECURRING_COSTAR = 182913  # Adrien Rabiot -- shared Juventus (506) and PSG (583) with Di María
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -59,46 +59,51 @@ def test_select_clue_pairs_respects_max_clues_with_many_options():
     assert len(_select_clue_pairs(qualifying, max_clues=1)) == 1
 
 
-def test_di_maria_recurring_costar_with_ramos():
-    r = riddle.get_riddle(DI_MARIA)
+def test_di_maria_recurring_costar_with_rabiot():
+    r = riddle.get_riddle(DI_MARIA, prefer_recurring=True)
     assert len(r.clues) >= 2
     teammate_ids = {c.teammate_player_id for c in r.clues}
-    assert RAMOS in teammate_ids
-    ramos_clues = [c for c in r.clues if c.teammate_player_id == RAMOS]
-    assert len(ramos_clues) == 2
-    assert {c.team_name for c in ramos_clues} == {"Real Madrid", "Paris Saint-Germain"}
+    assert RECURRING_COSTAR in teammate_ids
+    costar_clues = [c for c in r.clues if c.teammate_player_id == RECURRING_COSTAR]
+    assert len(costar_clues) == 2
+    assert {c.team_name for c in costar_clues} == {"Juventus FC", "Paris Saint-Germain"}
 
 
 def test_clue_count_respects_max_clues():
-    r = riddle.get_riddle(DI_MARIA, max_clues=1)
+    r = riddle.get_riddle(DI_MARIA, max_clues=1, prefer_recurring=True)
     assert len(r.clues) == 1
 
 
 def test_no_clue_from_an_international_competition():
-    r = riddle.get_riddle(DI_MARIA)
+    r = riddle.get_riddle(DI_MARIA, prefer_recurring=True)
     for c in r.clues:
         assert "national" not in c.competition_name.lower()
         assert c.competition_name not in ("FIFA World Cup", "UEFA Euro", "Copa America")
 
 
 def test_clues_have_distinct_teams_unless_recurring_costar():
-    r = riddle.get_riddle(DI_MARIA)
+    r = riddle.get_riddle(DI_MARIA, prefer_recurring=True)
     team_ids = [c.team_id for c in r.clues]
     assert len(team_ids) == len(set(team_ids))  # each clue is a distinct club
 
 
-def test_di_maria_does_not_pad_beyond_genuinely_qualifying_clubs():
-    # Under "easy" tier's strict per-teammate thresholds, Di María only has 2 genuinely
-    # qualifying clubs in this dataset (both consumed by the Ramos co-star story) -- no
-    # 3rd club meets the bar. Asking for max_clues=3 must NOT pad with an unrelated
-    # extra teammate from Real Madrid or PSG to hit 3; 2 honest clues is correct.
-    r = riddle.get_riddle(DI_MARIA, max_clues=3)
-    assert len(r.clues) == 2
-    assert {c.teammate_player_id for c in r.clues} == {RAMOS}
+def test_di_maria_fills_remaining_breadth_after_recurring_costar():
+    # Di María's career spans many genuinely qualifying clubs in this richer dataset, so
+    # after the recurring co-star (Rabiot, 2 clues) the 3rd clue slot is filled by a
+    # DIFFERENT teammate at a 3rd distinct club -- never an unrelated second teammate
+    # padding one of the co-star's own clubs.
+    r = riddle.get_riddle(DI_MARIA, max_clues=3, prefer_recurring=True)
+    assert len(r.clues) == 3
+    team_ids = [c.team_id for c in r.clues]
+    assert len(team_ids) == len(set(team_ids))  # 3 distinct clubs
+    costar_clues = [c for c in r.clues if c.teammate_player_id == RECURRING_COSTAR]
+    assert len(costar_clues) == 2
+    other_clues = [c for c in r.clues if c.teammate_player_id != RECURRING_COSTAR]
+    assert len(other_clues) == 1
 
 
 def test_every_clue_has_a_crest_and_sortable_year():
-    r = riddle.get_riddle(DI_MARIA)
+    r = riddle.get_riddle(DI_MARIA, prefer_recurring=True)
     for c in r.clues:
         assert c.team_crest_url is not None
         assert c.season_start_year > 1900
@@ -107,3 +112,36 @@ def test_every_clue_has_a_crest_and_sortable_year():
 def test_unqualified_player_raises():
     with pytest.raises(ValueError):
         riddle.get_riddle(999_999_999)
+
+
+def test_breadth_first_when_recurring_not_preferred():
+    # Regression: with full-career data nearly every player has a recurring co-star, so
+    # always preferring one made almost every riddle "X, X, Y". Without it, 3 clues must
+    # come from 3 distinct clubs AND 3 distinct teammates when the data allows.
+    qualifying = [(100, 1, 9), (100, 2, 8), (101, 2, 5), (102, 3, 5), (103, 4, 5)]
+    chosen = _select_clue_pairs(qualifying, max_clues=3, prefer_recurring=False)
+    assert len({t for _, t in chosen}) == 3
+    assert len({m for m, _ in chosen}) == 3
+
+
+def test_rng_varies_choices_but_stays_valid():
+    import random
+    qualifying = [(100 + i, 200 + i, 5) for i in range(10)]
+    picks = {
+        frozenset(_select_clue_pairs(qualifying, 3, False, random.Random(seed)))
+        for seed in range(20)
+    }
+    assert len(picks) > 1
+
+
+def test_club_selection_spreads_across_years_when_given_year_data():
+    # Regression: easy-mode riddles tended to show consecutive seasons (2023, 2024, 2025).
+    # Given each club's seasons, a 3-clue pick from clubs spanning 2010-2025 must never
+    # settle for the three clubs bunched at the end.
+    import random
+    qualifying = [(100 + i, 200 + i, 5) for i in range(6)]
+    years_by_club = {200: [2010], 201: [2012], 202: [2018], 203: [2023], 204: [2024], 205: [2025]}
+    for seed in range(30):
+        chosen = _select_clue_pairs(qualifying, 3, False, random.Random(seed), years_by_club)
+        years = sorted(years_by_club[t][0] for _, t in chosen)
+        assert years[-1] - years[0] >= 8, (seed, years)

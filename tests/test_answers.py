@@ -5,9 +5,14 @@ import pytest
 from footy_quiz import answers, db
 from footy_quiz.ingest import DEFAULT_DB_PATH
 
-MESSI = 5503  # nickname "Lionel Messi"
-DI_MARIA = 2995  # nickname "Ángel Di María" -- compound surname via particle "di"
-GIUSEPPE_ROSSI = 7141  # player_nickname IS NULL -- surname must come from player_name
+MESSI = 28003  # player_name "Lionel Messi" -- player_nickname is NULL (see note below)
+DI_MARIA = 45320  # "Ángel Di María" -- compound surname via particle "di"
+GIUSEPPE_ROSSI = 19104  # also nickname IS NULL -- every transfermarkt-sourced player is
+
+# transfermarkt's `name` field is already the common display form (never a full legal
+# name needing a separate nickname to get back to), so player_nickname is NULL for every
+# player in this dataset -- the "surname must come from player_name" case below isn't a
+# rare edge case here, it's the norm.
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -18,8 +23,7 @@ def _require_db():
     conn.close()
 
 
-def test_exact_full_name_and_nickname():
-    assert answers.check_answer(MESSI, "Lionel Andrés Messi Cuccittini").correct
+def test_exact_full_name_guess_is_correct():
     assert answers.check_answer(MESSI, "Lionel Messi").correct
 
 
@@ -79,14 +83,17 @@ def test_autocomplete_below_min_length_returns_empty_without_querying():
 
 
 def test_autocomplete_at_min_length_finds_a_real_two_letter_name():
-    # Wu Lei -- a real player in our data whose surname is exactly 2 characters.
-    results = answers.autocomplete_candidates("wu", limit=10)
-    assert any("Wu Lei" == r["player_nickname"] for r in results)
+    # Josué Sá -- a real player in our data whose surname is exactly 2 characters. "sa" is
+    # also the start of many far more common names (Salah, Sánchez, Sané, ...), so a
+    # generous limit is needed to confirm he's matched at all, not excluded by some length
+    # heuristic -- this isn't testing autocomplete's popularity ranking/limit behavior,
+    # that's covered separately by test_autocomplete_respects_limit.
+    results = answers.autocomplete_candidates("sa", limit=1000)
+    assert any("Josué Sá" == r["player_name"] for r in results)
 
 
 def test_autocomplete_matches_second_word_token():
     results = answers.autocomplete_candidates("ram", limit=10)
-    assert any("Ramos" in r["player_nickname"] or "" for r in results)
     names = [r["player_name"] for r in results]
     assert any("Ramos" in n for n in names)
 
@@ -98,3 +105,24 @@ def test_autocomplete_empty_for_nonsense_prefix():
 def test_autocomplete_respects_limit():
     results = answers.autocomplete_candidates("a", limit=3)
     assert len(results) <= 3
+
+
+def test_autocomplete_keeps_matching_multi_word_input():
+    # Regression: each name word was matched separately against the whole prefix, so as
+    # soon as you typed a space ("lionel m") the suggestions vanished.
+    for prefix, expected in [
+        ("lionel m", "Lionel Messi"),
+        ("lionel messi", "Lionel Messi"),
+        ("cristiano r", "Cristiano Ronaldo"),
+        ("di mar", "Ángel Di María"),
+    ]:
+        names = [r["player_name"] for r in answers.autocomplete_candidates(prefix, limit=10)]
+        assert expected in names, (prefix, names)
+
+
+def test_autocomplete_normalizes_punctuation_like_the_prefix():
+    for prefix in ("ngolo", "n golo", "n'golo"):
+        names = [r["player_name"] for r in answers.autocomplete_candidates(prefix, limit=10)]
+        assert "N'Golo Kanté" in names, (prefix, names)
+    names = [r["player_name"] for r in answers.autocomplete_candidates("marc andre", limit=10)]
+    assert "Marc-André ter Stegen" in names

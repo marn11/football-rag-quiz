@@ -47,9 +47,9 @@ def test_no_duplicate_edges(con):
 
 
 def test_shared_matches_matches_manual_recount(con):
-    # Cristiano Ronaldo & Marcelo at Real Madrid (team_id 220) -- a well-known, long-running
+    # Cristiano Ronaldo & Marcelo at Real Madrid (team_id 418) -- a well-known, long-running
     # pairing, used as a ground-truth spot check against a hand-written recount.
-    ronaldo, marcelo, real_madrid = 5207, 5552, 220
+    ronaldo, marcelo, real_madrid = 8198, 44501, 418
     claimed = con.sql(
         "SELECT shared_matches FROM teammate_edges "
         f"WHERE player_id_a = {ronaldo} AND player_id_b = {marcelo} AND team_id = {real_madrid}"
@@ -61,7 +61,7 @@ def test_shared_matches_matches_manual_recount(con):
         WHERE a1.player_id = {ronaldo} AND a2.player_id = {marcelo} AND a1.team_id = {real_madrid}
         """
     ).fetchone()[0]
-    assert claimed == manual == 48
+    assert claimed == manual == 189
 
 
 def test_contexts_sum_to_edge_totals(con):

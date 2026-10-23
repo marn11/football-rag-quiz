@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Guess the Player</title>
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Bungee&family=Rubik:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -34,7 +35,7 @@
     <section id="clues-section" class="panel">
       <div class="section-header">
         <h2><span class="pennant">The Line-up</span></h2>
-        <button id="reorder-btn" class="btn-ghost" title="Re-sort the clues by when they actually happened">
+        <button id="reorder-btn" class="btn-ghost" title="Reveal the seasons and sort the clues by when they happened">
           ⟳ Sort by year
         </button>
       </div>
@@ -57,11 +58,20 @@
           <ul id="autocomplete-list" class="autocomplete-list" hidden></ul>
         </div>
         <button type="submit" class="btn-primary">Guess</button>
-        <button type="button" id="reveal-btn" class="btn-danger">Full Time</button>
+        <button type="button" id="reveal-btn" class="btn-danger">Reveal Player</button>
       </form>
       <div id="feedback" class="feedback"></div>
     </section>
   </main>
+
+  <div id="reveal-modal" class="reveal-modal" hidden>
+    <div class="reveal-card">
+      <img id="reveal-photo" class="reveal-photo" alt="" hidden>
+      <div id="reveal-photo-placeholder" class="reveal-photo-placeholder" hidden>?</div>
+      <div id="reveal-name" class="reveal-name"></div>
+      <button type="button" id="reveal-close-btn" class="btn-ghost">Close</button>
+    </div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>

@@ -51,9 +51,11 @@ def test_full_sequence_start_hint_wrong_guess_correct_guess():
     reveal = client.post(f"/api/games/{game_id}/reveal")
     assert reveal.status_code == 200
     real_name = reveal.json()["player_name"]
-    surname = real_name.split()[-1]
 
-    correct = client.post(f"/api/games/{game_id}/guess", json={"guess": surname})
+    # The full revealed name, not just its last token -- some players have compound
+    # surnames (particles like "di"/"van"/"de"), where the last token alone isn't
+    # guaranteed to match (see answers._surname_candidates); the full name always does.
+    correct = client.post(f"/api/games/{game_id}/guess", json={"guess": real_name})
     assert correct.status_code == 200
     body = correct.json()
     assert body["correct"] is True

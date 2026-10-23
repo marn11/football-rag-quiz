@@ -1,5 +1,7 @@
 CREATE TABLE competitions (
-    competition_id INTEGER NOT NULL,
+    -- Transfermarkt's own short codes ('GB1', 'CL', 'FIWC', ...), not numeric --
+    -- kept as-is rather than inventing a synthetic integer id for them.
+    competition_id VARCHAR NOT NULL,
     season_id INTEGER NOT NULL,
     competition_name VARCHAR NOT NULL,
     season_name VARCHAR NOT NULL,
@@ -13,12 +15,15 @@ CREATE TABLE teams (
     team_id INTEGER PRIMARY KEY,
     team_name VARCHAR NOT NULL,
     country_name VARCHAR,
-    team_gender VARCHAR
+    team_gender VARCHAR,
+    -- Transfermarkt's crest CDN is keyed directly by team_id, deterministic (no lookup/
+    -- disambiguation needed) -- populated at ingest time, not lazily like player_wiki.
+    crest_url VARCHAR
 );
 
 CREATE TABLE matches (
     match_id INTEGER PRIMARY KEY,
-    competition_id INTEGER NOT NULL,
+    competition_id VARCHAR NOT NULL,
     season_id INTEGER NOT NULL,
     match_date DATE,
     competition_stage VARCHAR,
@@ -34,7 +39,11 @@ CREATE TABLE players (
     player_name VARCHAR NOT NULL,
     player_nickname VARCHAR,
     normalized_name VARCHAR NOT NULL,
-    country_name VARCHAR
+    country_name VARCHAR,
+    -- Transfermarkt's own profile photo, direct and deterministic -- NULL when the
+    -- source only had its generic "default.jpg" placeholder, in which case
+    -- footy_quiz.media's lazy Wikipedia photo resolution is the fallback.
+    photo_url VARCHAR
 );
 
 -- One row per player named in a team's squad list for a match. "Played with" means shared
@@ -68,7 +77,7 @@ CREATE TABLE teammate_edge_contexts (
     player_id_a INTEGER NOT NULL,
     player_id_b INTEGER NOT NULL,
     team_id INTEGER NOT NULL,
-    competition_id INTEGER NOT NULL,
+    competition_id VARCHAR NOT NULL,
     season_id INTEGER NOT NULL,
     matches_in_context INTEGER NOT NULL,
     PRIMARY KEY (player_id_a, player_id_b, team_id, competition_id, season_id),
@@ -77,25 +86,25 @@ CREATE TABLE teammate_edge_contexts (
     FOREIGN KEY (competition_id, season_id) REFERENCES competitions (competition_id, season_id)
 );
 
--- Wikipedia-backed media cache, one row per player/team the first time it's looked up
--- (lazy, on demand -- not bulk-prefetched). wiki_title/photo_url(/crest_url) are NULL when
--- resolution_method = 'unresolved', so we don't keep re-attempting a name we already tried.
--- NOTE: rebuilding the DB from scratch (ingest.build()) wipes this cache like everything
--- else -- acceptable since full rebuilds are rare, deliberate, dev-time operations.
+-- Each player's exact Wikipedia article, linked via Wikidata's Transfermarkt id by
+-- scripts/build_wiki_links.py (never guessed from the name -- that confused same-named
+-- players). wiki_title is NULL ('unresolved') when Wikidata has no English article for
+-- them. photo_url is Wikidata's image, only used when players.photo_url is a placeholder.
+-- NOTE: rebuilding the DB from scratch (ingest.build()) wipes this like everything else;
+-- rerun build_wiki_links.py (cached, instant) and build_popularity.py afterwards.
 CREATE TABLE player_wiki (
     player_id INTEGER PRIMARY KEY REFERENCES players(player_id),
     wiki_title VARCHAR,
-    resolution_method VARCHAR NOT NULL,  -- 'direct' | 'disambiguator' | 'search' | 'unresolved'
+    resolution_method VARCHAR NOT NULL,  -- 'wikidata' | 'unresolved'
     photo_url VARCHAR,
-    fetched_at TIMESTAMP NOT NULL
-);
-
-CREATE TABLE team_wiki (
-    team_id INTEGER PRIMARY KEY REFERENCES teams(team_id),
-    wiki_title VARCHAR,
-    resolution_method VARCHAR NOT NULL,
-    crest_url VARCHAR,
-    fetched_at TIMESTAMP NOT NULL
+    fetched_at TIMESTAMP NOT NULL,
+    -- Trailing-12-month en.wikipedia pageviews -- a real-world fame proxy, computed
+    -- separately (and much later) from the row's initial insert, so NULL means "not
+    -- looked up yet" vs. 0 meaning "looked up, genuinely near-zero traffic / no article".
+    -- Only ever populated in bulk by scripts/build_popularity.py, not fetched per-request
+    -- (it's an extra network call per player; difficulty banding needs it for potentially
+    -- thousands of candidates at once, far too slow to do live).
+    popularity_views BIGINT
 );
 
 -- Full Wikipedia article text for a player (reuses player_wiki's already-resolved title --

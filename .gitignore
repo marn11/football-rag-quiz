@@ -1,10 +1,10 @@
-# Vendored source data (re-fetched via scripts/vendor_data.sh, not committed)
-vendor/open-data/
-!vendor/SOURCE_COMMIT.txt
+# Vendored source data (re-fetched via scripts/vendor_transfermarkt.sh, not committed)
+vendor/transfermarkt/
 
 # Built artifacts
 data/*.duckdb
 data/*.duckdb.wal
+data/*.json
 
 # Python
 __pycache__/

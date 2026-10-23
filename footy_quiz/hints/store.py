@@ -13,6 +13,7 @@ the relevant chunks depend on what's asked for at request time.
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime, timezone
 from typing import Optional
 
@@ -35,6 +36,17 @@ def _get_model():
 
         _model = SentenceTransformer(EMBEDDING_MODEL_NAME)
     return _model
+
+
+_encode_lock = threading.Lock()
+
+
+def _encode(texts: list[str]):
+    """All embedding calls go through one lock: concurrent model.encode() calls from
+    different threads (several background hint-corpus prewarms, or a prewarm overlapping a
+    hint request) hard-crash the whole process inside torch with no Python traceback."""
+    with _encode_lock:
+        return _get_model().encode(texts, normalize_embeddings=True)
 
 
 def _float_array_literal(values) -> str:
@@ -63,8 +75,8 @@ def ensure_player_chunks(con: duckdb.DuckDBPyConnection, player_id: int) -> int:
     if cached:
         return cached
 
-    # Ensures Checkpoint 5's title resolution has run (and is cached) for this player.
-    media.get_or_fetch_player_photo(con, player_id)
+    # The article was linked by scripts/build_wiki_links.py (exact Wikidata match); no
+    # linked article means no hints, rather than guessing one from the name.
     row = con.execute(
         "SELECT p.player_name, p.player_nickname, pw.wiki_title "
         "FROM players p JOIN player_wiki pw USING (player_id) WHERE p.player_id = ?",
@@ -89,7 +101,7 @@ def ensure_player_chunks(con: duckdb.DuckDBPyConnection, player_id: int) -> int:
 
     aka = extract_aka_nickname(extract[:300])
 
-    embeddings = _get_model().encode(chunks, normalize_embeddings=True)
+    embeddings = _encode(chunks)
     for i, (chunk, emb) in enumerate(zip(chunks, embeddings)):
         vec_literal = _float_array_literal(emb)
         con.execute(
@@ -117,7 +129,7 @@ def retrieve(
     query (smaller = closer). contains_name=TRUE chunks are always excluded -- that's a
     hard spoiler-safety rule, not a difficulty knob. max_specificity/exclude_chunk_indices
     are session-level difficulty-progression/no-repeat controls (checkpoint 11)."""
-    query_embedding = _get_model().encode([query], normalize_embeddings=True)[0]
+    query_embedding = _encode([query])[0]
     query_vec_literal = _float_array_literal(query_embedding)
 
     where_clauses = ["player_id = ?", "NOT contains_name"]

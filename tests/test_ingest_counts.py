@@ -16,34 +16,41 @@ def con():
 
 
 def test_competitions_count(con):
-    # Men's football only -- 13 of the 80 competitions in the raw data are women's.
-    assert con.sql("SELECT COUNT(*) FROM competitions").fetchone()[0] == 67
+    # Top-flight domestic leagues (one row per competition-season) plus the in-scope
+    # international/continental competitions -- see footy_quiz/ingest.py's
+    # _IN_SCOPE_SUB_TYPES. Men's professional football only -- the source has no
+    # women's competitions at all, so no gender filter is needed at ingest time.
+    n = con.sql("SELECT COUNT(*) FROM competitions").fetchone()[0]
+    assert n > 200
     assert con.sql("SELECT DISTINCT competition_gender FROM competitions").fetchall() == [
         ("male",)
     ]
 
 
 def test_matches_count(con):
-    # Ground truth from the vendored data (men's competitions only), not the 4235
-    # lineup-file count -- some lineup files reference match_ids absent from
-    # matches/*/*.json entirely (upstream data gap) or belong to women's competitions.
-    assert con.sql("SELECT COUNT(*) FROM matches").fetchone()[0] == 2651
+    n = con.sql("SELECT COUNT(*) FROM matches").fetchone()[0]
+    assert n > 60_000
 
 
 def test_appearances_in_expected_range(con):
     n = con.sql("SELECT COUNT(*) FROM appearances").fetchone()[0]
-    assert 90_000 <= n <= 110_000
+    assert 2_000_000 <= n <= 3_000_000
 
 
-def test_2019_ucl_final_appearances(con):
-    # match_id 22912 = 2019 Champions League final. "Played with" = shared a squad list,
-    # so the full 23-man squads count, not just the players who actually featured.
+def test_squad_sizes_are_plausible(con):
+    # "Played with" = shared a squad list (starting lineup + bench), so the vast majority
+    # of (match, team) squads should look like a real matchday squad, not a handful of
+    # players or an absurdly bloated one. A small minority (~0.4%) fall outside this --
+    # real upstream data gaps for some older/obscure matches, not a bug -- so this checks
+    # the bulk of the distribution, not a strict universal bound.
     rows = con.sql(
-        "SELECT team_id, COUNT(*) FROM appearances WHERE match_id = 22912 GROUP BY team_id"
+        "SELECT COUNT(*) AS n FROM appearances GROUP BY match_id, team_id"
     ).fetchall()
-    counts = {team_id: n for team_id, n in rows}
-    assert len(counts) == 2
-    assert all(n == 23 for n in counts.values())
+    counts = [n for (n,) in rows]
+    assert counts  # non-empty
+    assert max(counts) <= 30
+    in_range = sum(1 for n in counts if 10 <= n <= 30)
+    assert in_range / len(counts) > 0.99
 
 
 def test_no_orphan_foreign_keys(con):
@@ -58,4 +65,9 @@ def test_players_have_normalized_names(con):
     bad = con.sql(
         "SELECT COUNT(*) FROM players WHERE normalized_name IS NULL OR normalized_name = ''"
     ).fetchone()[0]
+    assert bad == 0
+
+
+def test_teams_have_crest_urls(con):
+    bad = con.sql("SELECT COUNT(*) FROM teams WHERE crest_url IS NULL").fetchone()[0]
     assert bad == 0

@@ -36,7 +36,7 @@ _QUOTED_AKA_RE = re.compile(r"[\"“]([A-Z][a-zA-Z]+)[\"”]")
 
 def extract_aka_nickname(opening_text: str) -> Optional[str]:
     """Wikipedia bios conventionally introduce an informal nickname in quotes right in
-    the opening sentence, e.g. 'Lionel Andrés "Leo" Messi (born ...)'. Neither StatsBomb's
+    the opening sentence, e.g. 'Lionel Andrés "Leo" Messi (born ...)'. Neither the stored
     player_name nor player_nickname field would ever contain "Leo" -- it's a prose-only
     nickname -- so without this, a chunk using it wouldn't be flagged as a spoiler."""
     match = _QUOTED_AKA_RE.search(opening_text)

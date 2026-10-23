@@ -21,6 +21,17 @@
   box-sizing: border-box;
 }
 
+/* Several elements below set their own `display` (flex, for layout) on an element that
+   also carries the `hidden` attribute at different times -- an author-stylesheet class/
+   type selector always beats the UA stylesheet's [hidden] { display: none }, so without
+   this override those elements render even while hidden (confirmed live: the reveal
+   modal and the whole #game section were both visible on first load, before any game had
+   started). !important here is deliberate and permanent, not a one-off escape hatch --
+   this is the standard fix for this specific, well-known CSS gotcha. */
+[hidden] {
+  display: none !important;
+}
+
 html, body {
   margin: 0;
   min-height: 100%;
@@ -408,9 +419,47 @@ button:disabled {
   cursor: pointer;
 }
 
-.autocomplete-list li:hover {
+.autocomplete-list li:hover,
+.autocomplete-list li.active {
   background: var(--pitch-dark);
   color: var(--gold);
+}
+
+.autocomplete-list li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.autocomplete-list .suggestion-name {
+  flex: 1;
+}
+
+/* Same top-biased crop as the clue-card photos, so faces aren't cut off. */
+.autocomplete-list .suggestion-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  object-fit: cover;
+  object-position: 50% 15%;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.autocomplete-list .suggestion-avatar.placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+
+.autocomplete-list .suggestion-club {
+  color: var(--muted);
+  font-size: 0.82rem;
+  white-space: nowrap;
 }
 
 /* ---------- Feedback banner ---------- */
@@ -457,4 +506,57 @@ button:disabled {
   width: 10px;
   height: 14px;
   border-radius: 2px;
+}
+
+/* ---------- Reveal modal ---------- */
+.reveal-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 31, 24, 0.78);
+  padding: 20px;
+}
+
+.reveal-card {
+  background: var(--chalk);
+  color: var(--ink);
+  border-radius: 16px;
+  border: 4px solid var(--gold);
+  box-shadow: 8px 8px 0 var(--panel-raised);
+  padding: 28px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  max-width: 320px;
+  text-align: center;
+}
+
+.reveal-photo,
+.reveal-photo-placeholder {
+  width: 140px;
+  height: 172px;
+  border-radius: 12px;
+  object-fit: cover;
+  object-position: 50% 15%;
+  border: 3px solid var(--ink);
+  background: var(--panel-raised);
+}
+
+.reveal-photo-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2.6rem;
+  font-family: var(--font-display);
+  color: var(--muted);
+}
+
+.reveal-name {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  line-height: 1.25;
 }

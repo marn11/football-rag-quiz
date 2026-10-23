@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rebuilds data/footy_quiz.duckdb from the vendored StatsBomb JSON.
+"""Rebuilds data/footy_quiz.duckdb from the vendored transfermarkt-datasets file.
 
 Usage: uv run scripts/build_db.py
 """
@@ -15,7 +15,7 @@ from footy_quiz import ingest
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
-    print(f"Building {ingest.DEFAULT_DB_PATH} from {ingest.DEFAULT_VENDOR_DIR} ...")
+    print(f"Building {ingest.DEFAULT_DB_PATH} from {ingest.DEFAULT_VENDOR_PATH} ...")
     ingest.build()
     print("Done.")
 

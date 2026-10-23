@@ -17,7 +17,7 @@ from footy_quiz.hints import store
 from footy_quiz.hints.session import HintSessionState, get_next_hint
 from footy_quiz.ingest import DEFAULT_DB_PATH
 
-DEFAULT_PLAYER = 5503  # Messi
+DEFAULT_PLAYER = 28003  # Messi
 
 
 def main() -> None:

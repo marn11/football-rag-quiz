@@ -10,7 +10,6 @@ module's docstring for the persistence caveat.
 from __future__ import annotations
 
 import logging
-import random
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -18,8 +17,8 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 
 import footy_quiz
-from footy_quiz import riddle
-from footy_quiz.api import schemas
+from footy_quiz import media, riddle
+from footy_quiz.api import pregen, schemas
 from footy_quiz.api.game import GAMES, GameState, new_game_id
 from footy_quiz.db import connect
 from footy_quiz.hints import llm_hint, store
@@ -36,6 +35,7 @@ async def lifespan(app: FastAPI):
     # the main thread crashed the server outright (no Python traceback, just an exit)
     # the first time a hint request triggered it mid-request.
     store._get_model()
+    pregen.warm_all()
     yield
 
 
@@ -80,15 +80,15 @@ def _prewarm_hint_corpus(player_id: int) -> None:
 
 @app.post("/api/games", response_model=schemas.StartGameResponse)
 def start_game(background_tasks: BackgroundTasks, difficulty: str = "normal") -> schemas.StartGameResponse:
-    candidates = footy_quiz.list_candidate_target_players(difficulty=difficulty, limit=200)
-    if not candidates:
+    # Usually instant: pops an already-generated riddle for this difficulty out of
+    # footy_quiz.api.pregen's pool (built in the background while the *previous* game
+    # was being played), which also kicks off generating the next one right away. Only
+    # pays the full synchronous cost (candidate selection + crest/photo resolution) on a
+    # genuine cold start, e.g. right after server startup before warm_all() finishes.
+    generated_riddle = pregen.get_riddle_for(difficulty)
+    if generated_riddle is None:
         raise HTTPException(status_code=400, detail=f"no candidates for difficulty={difficulty!r}")
-    target_player_id = random.choice(candidates)
-
-    # difficulty is already known (the candidate came from a difficulty-filtered list),
-    # so get_riddle() doesn't need to re-derive it -- that re-scores every player in the
-    # dataset, wasteful to pay for twice in the same request.
-    generated_riddle = footy_quiz.get_riddle(target_player_id, difficulty=difficulty)
+    target_player_id = generated_riddle.target_player_id
 
     game_id = new_game_id()
     GAMES[game_id] = GameState(
@@ -145,15 +145,18 @@ def submit_guess(game_id: str, body: schemas.GuessRequest) -> schemas.GuessRespo
 @app.post("/api/games/{game_id}/reveal", response_model=schemas.RevealResponse)
 def reveal(game_id: str) -> schemas.RevealResponse:
     game = _get_game_or_404(game_id)
+    game.solved = True
     con = connect()
     try:
-        row = con.execute(
-            "SELECT COALESCE(player_nickname, player_name) FROM players WHERE player_id = ?",
+        name, photo_url = con.execute(
+            "SELECT COALESCE(player_nickname, player_name), photo_url FROM players WHERE player_id = ?",
             [game.target_player_id],
         ).fetchone()
+        # Same priority as clue cards: transfermarkt's own photo, Wikidata's as fallback.
+        photo_url = photo_url or media.get_or_fetch_player_photo(con, game.target_player_id)
     finally:
         con.close()
-    return schemas.RevealResponse(player_name=row[0])
+    return schemas.RevealResponse(player_name=name, photo_url=photo_url)
 
 
 @app.get("/api/players/autocomplete", response_model=list[schemas.AutocompleteResult])
@@ -162,6 +165,16 @@ def autocomplete(prefix: str, limit: int = 10) -> list[schemas.AutocompleteResul
     return [schemas.AutocompleteResult(**r) for r in results]
 
 
+class _RevalidatingStaticFiles(StaticFiles):
+    # Without a Cache-Control header, browsers heuristically cache app.js/style.css and
+    # keep serving stale copies after a change. no-cache still uses the ETag (cheap 304s),
+    # it just forces the revalidation.
+    async def get_response(self, path, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 # Registered last so the explicit /api/* routes above are matched first -- anything else
 # (/, /app.js, /style.css) falls through to the static frontend (checkpoint 14).
-app.mount("/", StaticFiles(directory=WEB_DIR, html=True), name="static")
+app.mount("/", _RevalidatingStaticFiles(directory=WEB_DIR, html=True), name="static")

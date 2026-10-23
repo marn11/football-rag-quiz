@@ -18,23 +18,27 @@ def con():
 
 
 def test_cameo_sub_is_extreme_not_missing(con):
-    # Sergi Canós: exactly 1 appearance -- too sparse for easy/normal/hard, but still
+    # Ruan Teles: exactly 1 appearance -- too sparse for easy/normal/hard, but still
     # has teammates from that one match, so should land in "extreme", not disappear.
     candidates = selection.rank_candidates(con, difficulty="any", limit=100_000)
     by_id = {c.player_id: c for c in candidates}
-    assert 4762 in by_id
-    assert by_id[4762].difficulty == "extreme"
+    assert 520787 in by_id
+    assert by_id[520787].difficulty == "extreme"
 
 
 def test_messi_is_easy(con):
     candidates = selection.rank_candidates(con, difficulty="any", limit=100_000)
     by_id = {c.player_id: c for c in candidates}
-    assert 5503 in by_id
-    assert by_id[5503].difficulty == "easy"
+    assert 28003 in by_id
+    assert by_id[28003].difficulty == "easy"
 
 
 def test_bands_are_mutually_exclusive_and_well_formed(con):
-    candidates = selection.rank_candidates(con, difficulty="any", limit=5000)
+    # limit must be large enough to span every band -- rank_candidates sorts by score
+    # globally, and "extreme" (minimal connections, by construction the lowest-scoring
+    # tier) has thousands of members in this dataset but would never surface in a small
+    # top-N cut dominated by higher-scoring easy/normal/hard candidates.
+    candidates = selection.rank_candidates(con, difficulty="any", limit=100_000)
     assert all(c.difficulty in ("easy", "normal", "hard", "extreme") for c in candidates)
     seen_ids = [c.player_id for c in candidates]
     assert len(seen_ids) == len(set(seen_ids))  # each player appears in exactly one band
