@@ -1,5 +1,9 @@
 # Footy Quiz — Guess the Player
 
+<p align="center">
+  <img src="docs/screenshots/game.png" alt="Footy Quiz — the Line-up clue board" width="100%" />
+</p>
+
 A football quiz game. The current mode, **Guess the Player**, identifies a mystery
 footballer only through a chain of deterministic clues — "played alongside teammate A at
 Club X" — built from [transfermarkt-datasets](https://github.com/dcaribou/transfermarkt-datasets)
@@ -7,6 +11,26 @@ Club X" — built from [transfermarkt-datasets](https://github.com/dcaribou/tran
 Cup/Champions League/Europa League, 2005-2025. On top of that, players can request hints: a
 live RAG pipeline retrieves grounded, non-spoiler sentences from the mystery player's
 Wikipedia page and has an LLM (Claude Haiku 4.5) phrase them into a natural trivia hint.
+
+**Stack:** Python 3.12 · FastAPI · DuckDB · LangChain embeddings + sentence-transformers · Claude Haiku 4.5 · vanilla JS frontend
+
+## Screenshots
+
+### The Line-up — deterministic teammate clues
+
+![The clue board](docs/screenshots/game.png)
+
+### Guessing (with feedback)
+
+![A wrong guess with feedback](docs/screenshots/guess.png)
+
+### Reveal — the mystery player
+
+![Reveal modal](docs/screenshots/reveal.png)
+
+### Landing
+
+![Landing](docs/screenshots/landing.png)
 
 ## Prerequisites
 
