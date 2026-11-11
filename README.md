@@ -28,9 +28,6 @@ Wikipedia page and has an LLM (Claude Haiku 4.5) phrase them into a natural triv
 
 ![Reveal modal](docs/screenshots/reveal.png)
 
-### Landing
-
-![Landing](docs/screenshots/landing.png)
 
 ## Prerequisites
 
